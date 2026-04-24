@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/frontend"
+
+if command -v bun >/dev/null 2>&1; then
+    if [ ! -d node_modules ]; then
+        bun install
+    fi
+    exec bun run dev
+else
+    if [ ! -d node_modules ]; then
+        npm install
+    fi
+    exec npm run dev
+fi

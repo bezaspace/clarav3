@@ -1,0 +1,15 @@
+[project]
+name = "clarav3-voice-backend"
+version = "0.1.0"
+description = "AyuCare Voice Assistant backend using Google ADK + FastAPI"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "google-adk",
+    "python-dotenv",
+    "pydantic",
+]
+
+[tool.uv]
+package = false
