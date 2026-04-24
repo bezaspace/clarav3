@@ -30,6 +30,17 @@ cp .env.example voice_assistant/.env
 uv sync
 ```
 
+## Seed mock data into SQLite
+
+Run this once after setup to populate the shared `app_sections` table used by all pages:
+
+```bash
+cd backend
+python seed.py
+```
+
+This writes `backend/data/clara.db` with the same mock payloads used across dashboard, care, and progress pages.
+
 ## Run
 
 ```bash

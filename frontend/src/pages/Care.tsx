@@ -1,145 +1,61 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card } from '@/src/components/ui/Card';
 import { 
-  ShoppingBag, Search, Filter, Plus, Zap, Star,
-  MapPin, Video, GraduationCap, Building2, Store, Stethoscope, TestTubes,
+  ShoppingBag, Plus, Zap, Star,
+  MapPin, Video, GraduationCap, Store, Stethoscope, TestTubes,
   Utensils, Clock, Bike
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { api } from '@/src/lib/api';
+import type { FoodItem, Professional, Product } from '@/src/lib/types';
 
-// --- DATA: SHOP ---
-interface Product {
-  id: string;
-  name: string;
-  category: 'Groceries' | 'Ayurveda' | 'Fitness' | 'Medication';
-  price: number;
-  originalPrice?: number;
-  unit: string;
-  rating: number;
-  image: string;
-  tag?: string;
-  isOffer?: boolean;
-}
-
-const products: Product[] = [
-  // Groceries
-  { id: '1', name: 'A2 Desi Cow Ghee', category: 'Groceries', price: 950, originalPrice: 1100, unit: '500ml', rating: 4.9, image: '🍯', tag: 'Best Seller', isOffer: true },
-  { id: '2', name: 'Organic Ragi (Finger Millet)', category: 'Groceries', price: 85, unit: '1kg', rating: 4.7, image: '🌾' },
-  { id: '3', name: 'Cold Pressed Groundnut Oil', category: 'Groceries', price: 240, unit: '1L', rating: 4.8, image: '🫗' },
-  { id: '4', name: 'High Protein Paneer', category: 'Groceries', price: 120, unit: '200g', rating: 4.6, image: '🧀' },
-  { id: '5', name: 'Sourdough Whole Wheat Bread', category: 'Groceries', price: 75, unit: '400g', rating: 4.5, image: '🍞' },
-  { id: '6', name: 'Organic Turmeric (Lakadong)', category: 'Groceries', price: 180, unit: '200g', rating: 5.0, image: '🫚', tag: 'High Curcumin' },
-  { id: '7', name: 'Pink Himalayan Salt', category: 'Groceries', price: 95, unit: '1kg', rating: 4.7, image: '🧂' },
-  { id: '8', name: 'Stevia Natural Sweetener', category: 'Groceries', price: 350, unit: '100g', rating: 4.4, image: '🍃' },
-
-  // Ayurveda
-  { id: '9', name: 'Ashwagandha Gold Capsules', category: 'Ayurveda', price: 499, originalPrice: 599, unit: '60 caps', rating: 4.8, image: '💊', isOffer: true },
-  { id: '10', name: 'Chyawanprash (Sugar-Free)', category: 'Ayurveda', price: 550, unit: '500g', rating: 4.9, image: '🏺' },
-  { id: '11', name: 'Triphala Effervescent Tabs', category: 'Ayurveda', price: 299, unit: '15 tabs', rating: 4.7, image: '🥤' },
-  { id: '12', name: 'Brahmi Brain Tonic', category: 'Ayurveda', price: 180, unit: '200ml', rating: 4.6, image: '🧪' },
-  { id: '13', name: 'Neem & Tulsi Skin Elixir', category: 'Ayurveda', price: 250, unit: '100ml', rating: 4.5, image: '🌿' },
-  { id: '14', name: 'Shilajit (Pure Resin)', category: 'Ayurveda', price: 1250, unit: '20g', rating: 5.0, image: '🖤', tag: 'Premium' },
-  { id: '15', name: 'Amrit Kalash 5-in-1', category: 'Ayurveda', price: 890, unit: '600g', rating: 4.8, image: '✨' },
-
-  // Fitness
-  { id: '16', name: 'Eco-Friendly Cork Yoga Mat', category: 'Fitness', price: 1850, originalPrice: 2200, unit: '6mm', rating: 4.9, image: '🧘', isOffer: true },
-  { id: '17', name: 'Copper Water Bottle (Lacquered)', category: 'Fitness', price: 750, unit: '1L', rating: 4.7, image: '🧴' },
-  { id: '18', name: 'Resistance Band Set (5)', category: 'Fitness', price: 950, unit: 'Set', rating: 4.6, image: '🎗️' },
-  { id: '19', name: 'Whey Protein Isolate (Kulfi)', category: 'Fitness', price: 2850, unit: '1kg', rating: 4.8, image: '💪', tag: 'New Flavor' },
-  { id: '20', name: 'Creatine Monohydrate', category: 'Fitness', price: 850, unit: '250g', rating: 4.7, image: '⚡' },
-  { id: '21', name: 'Massage Foam Roller', category: 'Fitness', price: 550, unit: '1 unit', rating: 4.5, image: '🩹' },
-  { id: '22', name: 'BPA-Free Gym Shaker', category: 'Fitness', price: 299, unit: '700ml', rating: 4.4, image: '🥤' },
-
-  // Medication
-  { id: '23', name: 'Multivitamin for Men/Women', category: 'Medication', price: 650, originalPrice: 850, unit: '60 tabs', rating: 4.8, image: '💊', isOffer: true },
-  { id: '24', name: 'Vitamin D3 60K IU', category: 'Medication', price: 120, unit: '4 softgels', rating: 4.9, image: '☀️' },
-  { id: '25', name: 'Omega-3 Fish Oil', category: 'Medication', price: 950, unit: '60 caps', rating: 4.7, image: '🐟' },
-  { id: '26', name: 'Melatonin Sleep Support', category: 'Medication', price: 350, unit: '30 gummies', rating: 4.6, image: '🌙' },
-  { id: '27', name: 'Quick Relief Digestion Fizz', category: 'Medication', price: 45, unit: '6 sachets', rating: 4.5, image: '🧊' },
-  { id: '28', name: 'Organic Eye Drops', category: 'Medication', price: 150, unit: '10ml', rating: 4.6, image: '💧' },
-  { id: '29', name: 'Ayurvedic Anti-Cold Balm', category: 'Medication', price: 65, unit: '25g', rating: 4.8, image: '💆' },
-  { id: '30', name: 'Blood Pressure Monitor', category: 'Medication', price: 2450, unit: 'Digital', rating: 4.9, image: '🩺', tag: 'Certified' },
-];
-
-// --- DATA: DOCTORS & LABS ---
-interface Professional {
-  id: string;
-  name: string;
-  specialty: string;
-  type: 'Doctor' | 'Lab';
-  experience?: string;
-  rating: number;
-  reviews: number;
-  location: string;
-  price: number;
-  availability: string;
-  image: string;
-  isOnline: boolean;
-}
-
-const professionals: Professional[] = [
-  // Doctors
-  { id: '1', name: 'Dr. Aarav Sharma', specialty: 'Cardiologist', type: 'Doctor', experience: '15 years', rating: 4.9, reviews: 1200, location: 'Gurugram, HR', price: 1000, availability: 'Today', image: '👨‍⚕️', isOnline: true },
-  { id: '2', name: 'Dr. Ishani Patel', specialty: 'Psychiatrist', type: 'Doctor', experience: '10 years', rating: 4.8, reviews: 850, location: 'Mumbai, MH', price: 1500, availability: 'Tomorrow', image: '👩‍⚕️', isOnline: true },
-  { id: '3', name: 'Dr. Vikram Reddy', specialty: 'Endocrinologist', type: 'Doctor', experience: '20 years', rating: 5.0, reviews: 2100, location: 'Hyderabad, TS', price: 1200, availability: 'Today', image: '👨‍⚕️', isOnline: false },
-  { id: '4', name: 'Dr. Ananya Iyer', specialty: 'Dermatologist', type: 'Doctor', experience: '8 years', rating: 4.7, reviews: 600, location: 'Chennai, TN', price: 800, availability: '24 Apr', image: '👩‍⚕️', isOnline: true },
-  { id: '5', name: 'Dr. Sameer Khan', specialty: 'General Physician', type: 'Doctor', experience: '12 years', rating: 4.6, reviews: 1500, location: 'Delhi, DL', price: 500, availability: 'Today', image: '👨‍⚕️', isOnline: true },
-  { id: '10', name: 'Dr. Kavita Nair', specialty: 'Psychiatrist', type: 'Doctor', experience: '14 years', rating: 4.9, reviews: 1100, location: 'Bangalore, KA', price: 2000, availability: 'Today', image: '👩‍⚕️', isOnline: true },
-  { id: '11', name: 'Dr. Siddharth Malhotra', specialty: 'Clinical Psychologist', type: 'Doctor', experience: '9 years', rating: 4.8, reviews: 750, location: 'Pune, MH', price: 1800, availability: 'Tomorrow', image: '👨‍⚕️', isOnline: true },
-  { id: '12', name: 'Dr. Riya Sen', specialty: 'Child Psychologist', type: 'Doctor', experience: '6 years', rating: 4.7, reviews: 320, location: 'Kolkata, WB', price: 1200, availability: '25 Apr', image: '👩‍⚕️', isOnline: true },
-  { id: '13', name: 'Dr. Amit Trivedi', specialty: 'Addiction Psychiatrist', type: 'Doctor', experience: '18 years', rating: 5.0, reviews: 900, location: 'Ahmedabad, GJ', price: 2500, availability: 'Today', image: '👨‍⚕️', isOnline: false },
-  { id: '14', name: 'Dr. Neha Kapoor', specialty: 'Gynecologist', type: 'Doctor', experience: '16 years', rating: 4.9, reviews: 3400, location: 'Chandigarh, CH', price: 1200, availability: 'Today', image: '👩‍⚕️', isOnline: true },
-  { id: '15', name: 'Dr. Arjun Mehra', specialty: 'Orthopedic Surgeon', type: 'Doctor', experience: '22 years', rating: 4.8, reviews: 2800, location: 'Ludhiana, PB', price: 1500, availability: 'Tomorrow', image: '👨‍⚕️', isOnline: false },
-  { id: '16', name: 'Dr. Priya Varma', specialty: 'Neurologist', type: 'Doctor', experience: '13 years', rating: 4.9, reviews: 1200, location: 'Jaipur, RJ', price: 1800, availability: 'Today', image: '👩‍⚕️', isOnline: true },
-  { id: '17', name: 'Dr. Rajesh Bansal', specialty: 'Gastroenterologist', type: 'Doctor', experience: '19 years', rating: 4.7, reviews: 1900, location: 'Indore, MP', price: 1000, availability: '26 Apr', image: '👨‍⚕️', isOnline: true },
-  { id: '18', name: 'Dr. Sunita Deshmukh', specialty: 'Ayurvedic MD', type: 'Doctor', experience: '25 years', rating: 5.0, reviews: 4500, location: 'Nashik, MH', price: 800, availability: 'Today', image: '👩‍⚕️', isOnline: true },
-  { id: '19', name: 'Dr. Varun Joshi', specialty: 'Urologist', type: 'Doctor', experience: '10 years', rating: 4.6, reviews: 800, location: 'Surat, GJ', price: 1200, availability: 'Tomorrow', image: '👨‍⚕️', isOnline: false },
-  { id: '20', name: 'Dr. Shalini Singh', specialty: 'ENT Specialist', type: 'Doctor', experience: '11 years', rating: 4.8, reviews: 1300, location: 'Lucknow, UP', price: 700, availability: 'Today', image: '👩‍⚕️', isOnline: true },
-
-  // Labs
-  { id: 'l1', name: 'AyuCare Diagnostics', specialty: 'Full Body Checkup', type: 'Lab', rating: 4.8, reviews: 5000, location: 'Indiranagar, Bangalore', price: 2999, availability: 'Home Collection', image: '🔬', isOnline: false },
-  { id: 'l2', name: 'ThyroCloud Labs', specialty: 'Thyroid & Hormones', type: 'Lab', rating: 4.7, reviews: 12000, location: 'Multiple Locations', price: 499, availability: 'Home Collection', image: '🧪', isOnline: false },
-  { id: 'l3', name: 'Metric Pathology', specialty: 'Biomarker Specialist', type: 'Lab', rating: 4.9, reviews: 3200, location: 'Whitefield, Bangalore', price: 1500, availability: 'Walk-in', image: '🧬', isOnline: false },
-  { id: 'l4', name: 'Wellness Path Labs', specialty: 'Advanced Imaging', type: 'Lab', rating: 4.6, reviews: 2100, location: 'South Delhi', price: 5000, availability: 'Appointment Only', image: '📡', isOnline: false },
-  { id: 'l5', name: 'Dr. Lal PathLabs', specialty: 'NABL Certified', type: 'Lab', rating: 4.8, reviews: 45000, location: 'Pan-India', price: 1200, availability: 'Home Collection', image: '🏢', isOnline: false },
-  { id: 'l6', name: 'Metropolis Healthcare', specialty: 'Comprehensive Profiles', type: 'Lab', rating: 4.7, reviews: 38000, location: 'Pan-India', price: 1800, availability: 'Home Collection', image: '🔬', isOnline: false },
-  { id: 'l7', name: 'Apollo Diagnostics', specialty: 'Specialized Testing', type: 'Lab', rating: 4.9, reviews: 15000, location: 'Mumbai & Chennai', price: 2500, availability: 'Walk-in', image: '🏥', isOnline: false },
-  { id: 'l8', name: 'SRL Diagnostics', specialty: 'Reference Lab', type: 'Lab', rating: 4.6, reviews: 22000, location: 'Pan-India', price: 900, availability: 'Appointment Only', image: '🧪', isOnline: false },
-  { id: 'l9', name: 'Suburban Diagnostics', specialty: 'Home Collection Expert', type: 'Lab', rating: 4.5, reviews: 9000, location: 'Pune & Mumbai', price: 600, availability: 'Home Collection', image: '🏢', isOnline: false },
-  { id: 'l10', name: 'Hitech Diagnostics', specialty: 'Genetics & IVF', type: 'Lab', rating: 4.8, reviews: 4000, location: 'Hyderabad', price: 4500, availability: 'Advanced Booking', image: '🧬', isOnline: false },
-];
-
-// --- DATA: FOOD ---
-interface FoodItem {
-  id: string;
-  restaurant: string;
-  name: string;
-  category: string;
-  price: number;
-  rating: number;
-  time: string;
-  image: string;
-  offer?: string;
-  veg?: boolean;
-}
-
-const foodItems: FoodItem[] = [
-  { id: 'f1', restaurant: 'FitKitchen', name: 'Quinoa Paneer Salad', category: 'Healthy', price: 299, rating: 4.6, time: '30 min', image: '🥗', offer: 'Free Delivery', veg: true },
-  { id: 'f2', restaurant: 'AyurDine', name: 'Sattvic Thali', category: 'Indian', price: 250, rating: 4.8, time: '40 min', image: '🍱', veg: true },
-  { id: 'f3', restaurant: 'ProteinHouse', name: 'Grilled Chicken Breast', category: 'Keto', price: 350, rating: 4.5, time: '25 min', image: '🍗', offer: '20% OFF', veg: false },
-  { id: 'f4', restaurant: 'SmoothieBar', name: 'Green Detox Smoothie', category: 'Beverages', price: 150, rating: 4.7, time: '15 min', image: '🥤', veg: true },
-  { id: 'f5', restaurant: 'Leafy', name: 'Millet Khichdi', category: 'Comfort Food', price: 180, rating: 4.9, time: '35 min', image: '🍲', veg: true },
-  { id: 'f6', restaurant: 'OvenStory', name: 'Multigrain Veg Pizza', category: 'Italian', price: 320, rating: 4.4, time: '45 min', image: '🍕', veg: true },
-  { id: 'f7', restaurant: 'BowlCompany', name: 'Teriyaki Tofu Bowl', category: 'Asian', price: 280, rating: 4.5, time: '30 min', image: '🍜', veg: true },
-  { id: 'f8', restaurant: 'WrapIt', name: 'Egg White Wholewheat Wrap', category: 'Snacks', price: 190, rating: 4.6, time: '20 min', image: '🌯', veg: false },
-  { id: 'f9', restaurant: 'SweetTruth', name: 'Sugar-free Oat Cookies', category: 'Dessert', price: 120, rating: 4.7, time: '25 min', image: '🍪', offer: 'Buy 1 Get 1', veg: true },
-  { id: 'f10', restaurant: 'SushiGo', name: 'Salmon Avocado Roll', category: 'Japanese', price: 450, rating: 4.8, time: '50 min', image: '🍣', veg: false },
-];
+const fallbackProducts: Product[] = [];
+const fallbackProfessionals: Professional[] = [];
+const fallbackFoodItems: FoodItem[] = [];
 
 export default function Care() {
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'shop' | 'doctors' | 'labs' | 'food'>('shop');
   const [cartCount, setCartCount] = useState(0);
+  const [products, setProducts] = useState<Product[]>(fallbackProducts);
+  const [professionals, setProfessionals] = useState<Professional[]>(fallbackProfessionals);
+  const [foodItems, setFoodItems] = useState<FoodItem[]>(fallbackFoodItems);
+
+  useEffect(() => {
+    let isActive = true;
+
+    Promise.all([
+      api.careProducts(),
+      api.careProfessionals(),
+      api.careFood(),
+    ])
+      .then(([productsData, professionalsData, foodData]) => {
+        if (!isActive) return;
+        setProducts(productsData);
+        setProfessionals(professionalsData);
+        setFoodItems(foodData);
+      })
+      .catch(() => {
+        if (!isActive) return;
+        setProducts(fallbackProducts);
+        setProfessionals(fallbackProfessionals);
+        setFoodItems(fallbackFoodItems);
+      })
+      .finally(() => {
+        if (isActive) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  if (loading) {
+    return <div className="text-sm text-stone-500">Loading...</div>;
+  }
 
   const renderShop = () => (
     <motion.div 

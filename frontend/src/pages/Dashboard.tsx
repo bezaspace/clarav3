@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Card } from '@/src/components/ui/Card';
 import { cn } from '@/src/lib/utils';
+import { api } from '@/src/lib/api';
+import type { DashboardData } from '@/src/lib/types';
 import { 
   User, 
   ShieldAlert, 
@@ -18,39 +21,49 @@ import {
 } from 'lucide-react';
 
 export default function Dashboard() {
-  const profile = {
-    name: "Harsha",
-    age: 32,
-    bloodType: "O+ Positive",
-    prakriti: "Vata-Pitta",
-    status: "Metabolic Reset Phase",
-    allergies: ["Peanuts", "Dust Mites", "Penicillin"],
-    conditions: ["Mild Hypertension (Managed)", "Seasonal Asthma"],
-    history: [
-      { year: "2021", event: "ACL Reconstruction (Right Knee)" },
-      { year: "2018", event: "Appendectomy" }
-    ],
-    targets: [
-      { goal: "HbA1c Optimization", current: "6.2%", aim: "5.4%", effort: "High" },
-      { goal: "CRP Reduction", current: "3.2 mg/L", aim: "1.0 mg/L", effort: "Medium" }
-    ]
-  };
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<DashboardData | null>(null);
 
-  const todaysSchedule = [
-    { id: 1, time: '06:00 AM', title: 'Morning Meditation & Pranayama', type: 'Mind', duration: '25 min', status: 'completed' },
-    { id: 2, time: '06:30 AM', title: 'Yoga & Core Workout', type: 'Body', duration: '45 min', status: 'completed' },
-    { id: 3, time: '07:30 AM', title: 'Morning Tea: Ginger Masala & Almonds', type: 'Diet', duration: '80 kcal', status: 'completed' },
-    { id: 4, time: '08:00 AM', title: 'Triphala Churna', type: 'Medicine', duration: 'Empty Stomach', status: 'completed' },
-    { id: 5, time: '09:00 AM', title: 'Breakfast: Vegetable Poha & Curd', type: 'Diet', duration: '320 kcal', status: 'completed' },
-    { id: 6, time: '09:30 AM', title: 'Multivitamin', type: 'Medicine', duration: 'After Breakfast', status: 'completed' },
-    { id: 7, time: '11:30 AM', title: 'Mid-Day Snack: 1 Seasonal Fruit', type: 'Diet', duration: '90 kcal', status: 'pending' },
-    { id: 8, time: '01:30 PM', title: 'Lunch: Jowar Rotis, Dal Tadka, Salad', type: 'Diet', duration: '450 kcal', status: 'pending' },
-    { id: 9, time: '04:30 PM', title: 'Evening Snack: Sprouted Moong Salad', type: 'Diet', duration: '150 kcal', status: 'pending' },
-    { id: 10, time: '08:00 PM', title: 'Dinner: Khichdi & Buttermilk', type: 'Diet', duration: '350 kcal', status: 'pending' },
-    { id: 11, time: '09:30 PM', title: 'Gratitude Journal & Reflection', type: 'Mind', duration: '15 min', status: 'pending' },
-    { id: 12, time: '09:45 PM', title: 'Ashwagandha', type: 'Medicine', duration: 'Before Sleep', status: 'pending' },
-    { id: 13, time: '10:00 PM', title: 'Screen Down Time', type: 'Mind', duration: '1 hour before sleep', status: 'pending' },
-  ];
+  useEffect(() => {
+    let active = true;
+    api
+      .dashboard()
+      .then((payload) => {
+        if (active) {
+          setData(payload);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setData({ profile: {
+            name: '',
+            age: 0,
+            bloodType: '',
+            prakriti: '',
+            status: '',
+            allergies: [],
+            conditions: [],
+            history: [],
+            targets: [],
+          }, todaysSchedule: [] });
+        }
+      })
+      .finally(() => active && setLoading(false));
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (loading) {
+    return <div className="text-sm text-stone-500">Loading...</div>;
+  }
+
+  if (!data) {
+    return <div className="text-sm text-stone-500">Unable to load dashboard.</div>;
+  }
+
+  const { profile, todaysSchedule } = data;
 
   const getIconForType = (type: string) => {
     switch (type) {

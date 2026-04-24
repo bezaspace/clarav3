@@ -11,6 +11,7 @@ __pycache__/
 venv/
 .venv/
 uv.lock
+backend/data/*.db
 
 # Node / frontend
 node_modules/

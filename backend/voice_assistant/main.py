@@ -4,7 +4,9 @@ import base64
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
+
+from voice_assistant.db import get_section
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -103,6 +105,69 @@ app.add_middleware(
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+def _load_payload(section: str, fallback: Any) -> Any:
+    payload = get_section(section)
+    if payload is None:
+        return fallback
+    return payload
+
+
+@app.get("/api/dashboard")
+async def get_dashboard():
+    return _load_payload("dashboard", {})
+
+
+@app.get("/api/care/products")
+async def get_care_products():
+    return _load_payload("care_products", [])
+
+
+@app.get("/api/care/professionals")
+async def get_care_professionals():
+    return _load_payload("care_professionals", [])
+
+
+@app.get("/api/care/food")
+async def get_care_food():
+    return _load_payload("care_food", [])
+
+
+@app.get("/api/journal")
+async def get_journal():
+    return {
+        "tasks": _load_payload("journal_tasks", []),
+        "entries": _load_payload("journal_entries", []),
+    }
+
+
+@app.get("/api/progress/biomarkers")
+async def get_progress_biomarkers():
+    return {
+        "biomarkers": _load_payload("biomarkers", []),
+        "summary": _load_payload("biomarkers_summary", {}),
+    }
+
+
+@app.get("/api/progress/diet")
+async def get_progress_diet():
+    return _load_payload("diet", {"historyData": [], "sattvicGoal": 0})
+
+
+@app.get("/api/progress/mental")
+async def get_progress_mental():
+    return _load_payload("mental_health", {"historyData": [], "adherenceData": [], "quickStats": {}})
+
+
+@app.get("/api/progress/workouts")
+async def get_progress_workouts():
+    return _load_payload("workouts", {"workoutData": [], "sessions": [], "milestone": {}})
+
+
+@app.get("/api/progress/medication")
+async def get_progress_medication():
+    return _load_payload("medication", {"overview": {}, "adherenceRows": []})
 
 
 def _parse_client_message(raw_message: str) -> ClientMessage:

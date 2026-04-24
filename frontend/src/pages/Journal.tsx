@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card } from '@/src/components/ui/Card';
 import { 
   Book, Pencil, Plus, Search, Calendar, 
@@ -8,65 +8,46 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { api } from '@/src/lib/api';
+import type { JournalData, JournalEntry, Task } from '@/src/lib/types';
 
-interface Task {
-  id: string;
-  title: string;
-  status: 'todo' | 'in-progress' | 'completed';
-  priority: 'low' | 'medium' | 'high';
-  category: string;
-  dueDate: string;
-}
-
-interface JournalEntry {
-  id: string;
-  date: string;
-  title: string;
-  excerpt: string;
-  mood: string;
-  tags: string[];
-}
-
-const initialTasks: Task[] = [
-  { id: '1', title: 'Morning Vipassana Meditation', status: 'completed', priority: 'high', category: 'Mind', dueDate: 'Today' },
-  { id: '2', title: 'Buy high-protein groceries', status: 'in-progress', priority: 'medium', category: 'Shopping', dueDate: 'Today' },
-  { id: '3', title: 'Consultation with Dr. Ishani', status: 'todo', priority: 'high', category: 'Health', dueDate: 'Tomorrow' },
-  { id: '4', title: 'Update biomarker tracking', status: 'todo', priority: 'medium', category: 'Optimization', dueDate: '25 Apr' },
-  { id: '5', title: 'Read 20 pages of "Atomic Habits"', status: 'in-progress', priority: 'low', category: 'Growth', dueDate: 'Today' },
-  { id: '6', title: 'Pre-workout meal prep', status: 'todo', priority: 'medium', category: 'Body', dueDate: 'Today' },
-  { id: '7', title: 'Book full body lab test', status: 'completed', priority: 'high', category: 'Health', dueDate: 'Yesterday' },
-];
-
-const journalEntries: JournalEntry[] = [
-  { 
-    id: '1', 
-    date: '23 April, 2026', 
-    title: 'Morning Clarity', 
-    excerpt: 'Woke up feeling exceptionally refreshed today. The new sleep routine is clearly working...', 
-    mood: 'Happy', 
-    tags: ['Sleep', 'Mindfulness'] 
-  },
-  { 
-    id: '2', 
-    date: '22 April, 2026', 
-    title: 'Post-Workout Reflection', 
-    excerpt: 'Felt strong during the session, but noticed some tightness in the lower back. Need to focus on mobility tomorrow...', 
-    mood: 'Productive', 
-    tags: ['Fitness', 'Reflection'] 
-  },
-  { 
-    id: '3', 
-    date: '21 April, 2026', 
-    title: 'Balanced Diet Struggles', 
-    excerpt: 'Had a slight slip up with the diet today at the office party. Choosing to forgive myself and get back on track...', 
-    mood: 'Neutral', 
-    tags: ['Diet', 'Self-Care'] 
-  },
-];
+const fallbackData: JournalData = {
+  tasks: [],
+  entries: [],
+};
 
 export default function Journal() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [journalData, setJournalData] = useState<JournalData>(fallbackData);
+  const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState<'todo' | 'in-progress' | 'completed' | 'journal'>('todo');
+
+  useEffect(() => {
+    let active = true;
+    api
+      .journal()
+      .then((payload) => {
+        if (!active) return;
+        setJournalData(payload);
+      })
+      .catch(() => {
+        if (active) {
+          setJournalData(fallbackData);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (loading) {
+    return <div className="text-sm text-stone-500">Loading...</div>;
+  }
 
   const getPriorityColor = (p: string) => {
     switch (p) {
@@ -77,7 +58,7 @@ export default function Journal() {
   };
 
   const TaskGrid = ({ title, status, icon: Icon, color }: { title: string, status: Task['status'], icon: any, color: string }) => {
-    const sectionTasks = tasks.filter(t => t.status === status);
+    const sectionTasks = journalData.tasks.filter((t) => t.status === status);
     
     return (
       <div className="flex-1 bg-stone-900/30 rounded-2xl p-4 sm:p-6 border border-ayu-border/50 flex flex-col w-full">
@@ -126,10 +107,10 @@ export default function Journal() {
               </div>
             </Card>
           ))}
-          {sectionTasks.length === 0 && (
-            <div className="col-span-full flex flex-col items-center justify-center p-8 text-stone-600 border border-dashed border-stone-800 rounded-xl flex-1 min-h-[160px]">
-              <span className="text-sm font-bold">No tasks</span>
-            </div>
+                {sectionTasks.length === 0 && (
+                  <div className="col-span-full flex flex-col items-center justify-center p-8 text-stone-600 border border-dashed border-stone-800 rounded-xl flex-1 min-h-[160px]">
+                    <span className="text-sm font-bold">No tasks</span>
+                  </div>
           )}
         </div>
       </div>
@@ -216,7 +197,7 @@ export default function Journal() {
         ) : (
           <div className="space-y-4 animate-in fade-in transition-all">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {journalEntries.map((entry) => (
+              {journalData.entries.map((entry: JournalEntry) => (
                 <Card key={entry.id} className="p-6 border-ayu-border hover:border-ayu-green/20 flex flex-col group transition-all">
                   <div className="flex justify-between items-start w-full mb-4">
                     <div>
@@ -253,4 +234,3 @@ export default function Journal() {
     </div>
   );
 }
-
