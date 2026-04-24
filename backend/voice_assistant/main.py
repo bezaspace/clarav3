@@ -1,6 +1,8 @@
 import asyncio
-import json
 import base64
+import json
+import logging
+import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,8 +24,12 @@ from google.genai import types
 from pydantic import BaseModel
 from pydantic import ValidationError
 
+from voice_assistant.agent import create_voice_assistant_agent
 from voice_assistant.agent import voice_assistant_agent
 from voice_assistant.monkey_patch import patch_gemini_3_1_support
+from seed_data import get_seed_payload
+from voice_assistant.tools import SCHEDULE_SUMMARY_STATE_KEY
+from voice_assistant.tools import SCHEDULE_TIMEZONE_STATE_KEY
 
 
 patch_gemini_3_1_support()
@@ -35,9 +41,15 @@ load_dotenv(env_path)
 
 APP_NAME = "clara3_voice_assistant"
 USER_ID = "anonymous"
+LOG_LEVEL = os.getenv("VOICE_ASSISTANT_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("voice_assistant.live")
 session_service = InMemorySessionService()
-runner: Runner | None = None
 session_resumption_handles: dict[str, str] = {}
+SEED_PAYLOAD = get_seed_payload()
 
 
 class SessionInitMessage(BaseModel):
@@ -82,11 +94,11 @@ ClientMessage = (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global runner
-    runner = Runner(
-        agent=voice_assistant_agent,
-        app_name=APP_NAME,
-        session_service=session_service,
+    tool_names = [getattr(tool, "__name__", str(tool)) for tool in voice_assistant_agent.tools]
+    logger.info(
+        "runner.init model=%s tools=%s",
+        voice_assistant_agent.model,
+        tool_names,
     )
     yield
 
@@ -114,9 +126,20 @@ def _load_payload(section: str, fallback: Any) -> Any:
     return payload
 
 
+def _load_dashboard_payload() -> dict[str, Any]:
+    payload = _load_payload("dashboard", SEED_PAYLOAD["dashboard"])
+    if not isinstance(payload, dict):
+        return SEED_PAYLOAD["dashboard"]
+    if not isinstance(payload.get("profile"), dict):
+        return SEED_PAYLOAD["dashboard"]
+    if not isinstance(payload.get("todaysSchedule"), list):
+        return SEED_PAYLOAD["dashboard"]
+    return payload
+
+
 @app.get("/api/dashboard")
 async def get_dashboard():
-    return _load_payload("dashboard", {})
+    return _load_dashboard_payload()
 
 
 @app.get("/api/care/products")
@@ -192,19 +215,54 @@ def _parse_client_message(raw_message: str) -> ClientMessage:
     raise ValueError(f"Unsupported message type: {message_type!r}")
 
 
-async def _get_or_create_session(session_id: str) -> Session:
+def _build_schedule_context() -> tuple[dict[str, Any], str]:
+    dashboard = _load_payload("dashboard", {})
+    journal_tasks = _load_payload("journal_tasks", [])
+
+    todays_schedule = dashboard.get("todaysSchedule", [])
+    profile = dashboard.get("profile", {})
+    profile_name = str(profile.get("name", "")).strip()
+    pending_schedule_count = sum(
+        1 for item in todays_schedule if str(item.get("status", "")).strip().lower() != "completed"
+    )
+    pending_task_count = sum(
+        1 for task in journal_tasks if str(task.get("status", "")).strip().lower() != "completed"
+    )
+    summary_parts = [
+        f"User name: {profile_name}." if profile_name else "",
+        f"Today's schedule has {len(todays_schedule)} items with {pending_schedule_count} still pending.",
+        f"There are {pending_task_count} open journal tasks.",
+        "The user's local timezone is Asia/Kolkata.",
+    ]
+    summary = " ".join(part for part in summary_parts if part)
+    state = {
+        "app:schedule_available": True,
+        "app:profile_name": profile_name,
+        "app:schedule_item_count": len(todays_schedule),
+        "app:pending_schedule_count": pending_schedule_count,
+        "app:pending_journal_task_count": pending_task_count,
+        SCHEDULE_TIMEZONE_STATE_KEY: "Asia/Kolkata",
+        SCHEDULE_SUMMARY_STATE_KEY: summary,
+    }
+    return state, summary
+
+
+async def _get_or_create_session(session_id: str, state: dict[str, Any]) -> Session:
     session = await session_service.get_session(
         app_name=APP_NAME,
         user_id=USER_ID,
         session_id=session_id,
     )
     if session:
+        logger.info("session.resume session_id=%s", session_id)
         return session
 
+    logger.info("session.create session_id=%s", session_id)
     return await session_service.create_session(
         app_name=APP_NAME,
         user_id=USER_ID,
         session_id=session_id,
+        state=state,
     )
 
 
@@ -238,6 +296,83 @@ def _build_run_config(session_id: str) -> RunConfig:
 
 def _server_message(message_type: str, **payload: object) -> dict[str, object]:
     return {"type": message_type, **payload}
+
+
+def _get_function_responses(event: object) -> list[object]:
+    getter = getattr(event, "get_function_responses", None)
+    if callable(getter):
+        return getter() or []
+    return []
+
+
+def _parse_function_response(function_response: object) -> dict[str, Any] | None:
+    response = getattr(function_response, "response", None)
+    if isinstance(response, dict):
+        return response
+    if isinstance(response, str):
+        try:
+            parsed = json.loads(response)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _extract_tool_payloads(event: object) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for function_response in _get_function_responses(event):
+        parsed = _parse_function_response(function_response)
+        if not parsed:
+            continue
+        if parsed.get("type") in {"current_activity", "schedule_snapshot"}:
+            payloads.append(parsed)
+    return payloads
+
+
+def _summarize_event(event: object) -> dict[str, object]:
+    event_id = getattr(event, "id", None)
+    invocation_id = getattr(event, "invocation_id", None)
+    partial = getattr(event, "partial", None)
+    interrupted = getattr(event, "interrupted", None)
+    turn_complete = getattr(event, "turn_complete", None)
+    input_text = getattr(getattr(event, "input_transcription", None), "text", None)
+    output_text = getattr(getattr(event, "output_transcription", None), "text", None)
+    function_calls = []
+    function_responses = []
+    if hasattr(event, "get_function_calls"):
+        function_calls = [
+            {
+                "name": call.name,
+                "args": call.args,
+            }
+            for call in event.get_function_calls()
+        ]
+    if _get_function_responses(event):
+        function_responses = [
+            {
+                "name": getattr(response, "name", None),
+                "response_keys": sorted((_parse_function_response(response) or {}).keys()),
+            }
+            for response in _get_function_responses(event)
+        ]
+    tool_payload_types = [
+        payload.get("type")
+        for payload in _extract_tool_payloads(event)
+    ]
+    audio_block_count = len(_iter_output_audio_blocks(event))
+    return {
+        "event_id": event_id,
+        "invocation_id": invocation_id,
+        "partial": partial,
+        "interrupted": interrupted,
+        "turn_complete": turn_complete,
+        "input_text": input_text,
+        "output_text": output_text,
+        "function_calls": function_calls,
+        "function_responses": function_responses,
+        "tool_payload_types": tool_payload_types,
+        "audio_block_count": audio_block_count,
+    }
 
 
 def _extract_audio_bytes(audio: object) -> bytes | None:
@@ -325,26 +460,42 @@ def _iter_output_audio_blocks(event) -> list[tuple[bytes, int]]:
 
 @app.websocket("/live")
 async def live(websocket: WebSocket):
-    if runner is None:
-        await websocket.close(code=1011, reason="Runner is not initialized")
-        return
-
     await websocket.accept()
+    logger.info("ws.accept client_connected=true")
     send_lock = asyncio.Lock()
     live_request_queue = LiveRequestQueue()
 
     async def send_json(message: dict[str, object]) -> None:
+        logger.info(
+            "ws.send_json type=%s keys=%s",
+            message.get("type"),
+            sorted(message.keys()),
+        )
         async with send_lock:
             await websocket.send_json(message)
 
     try:
         init_raw = await websocket.receive_text()
+        logger.info("ws.receive_text initial=%s", init_raw)
         init_message = _parse_client_message(init_raw)
         if not isinstance(init_message, SessionInitMessage):
             raise ValueError("The first websocket message must be session_init.")
 
         session_id = init_message.session_id or str(uuid.uuid4())
-        session = await _get_or_create_session(session_id)
+        session_state, schedule_summary = _build_schedule_context()
+        session = await _get_or_create_session(session_id, session_state)
+        session_agent = create_voice_assistant_agent(schedule_summary=schedule_summary)
+        runner = Runner(
+            agent=session_agent,
+            app_name=APP_NAME,
+            session_service=session_service,
+        )
+        logger.info(
+            "session.tools session_id=%s tools=%s state_keys=%s",
+            session_id,
+            [getattr(tool, "__name__", str(tool)) for tool in session_agent.tools],
+            sorted(session.state.keys()),
+        )
 
         await send_json(_server_message("session_started", session_id=session_id))
         await send_json(_server_message("state", state="idle"))
@@ -357,10 +508,16 @@ async def live(websocket: WebSocket):
                 live_request_queue=live_request_queue,
                 run_config=run_config,
             ):
+                logger.info("runner.event %s", json.dumps(_summarize_event(event), default=str))
                 if event.live_session_resumption_update:
                     update = event.live_session_resumption_update
                     if update.resumable and update.new_handle:
                         session_resumption_handles[session_id] = update.new_handle
+                        logger.info(
+                            "session.resumption_update session_id=%s resumable=%s",
+                            session_id,
+                            update.resumable,
+                        )
 
                 if event.interrupted:
                     await send_json(_server_message("interrupted"))
@@ -374,6 +531,9 @@ async def live(websocket: WebSocket):
                         )
                     )
 
+                for payload in _extract_tool_payloads(event):
+                    await send_json(payload)
+
                 if event.output_transcription and event.output_transcription.text:
                     await send_json(
                         _server_message(
@@ -382,6 +542,18 @@ async def live(websocket: WebSocket):
                             speaker="assistant",
                         )
                     )
+
+                content = getattr(event, "content", None)
+                if content:
+                    for part in getattr(content, "parts", []) or []:
+                        if getattr(part, "text", None):
+                            await send_json(
+                                _server_message(
+                                    "assistant_text",
+                                    text=part.text,
+                                    speaker="assistant",
+                                )
+                            )
 
                 audio_blocks = _iter_output_audio_blocks(event)
                 for audio_data, sample_rate in audio_blocks:
@@ -400,8 +572,13 @@ async def live(websocket: WebSocket):
         async def process_messages() -> None:
             while True:
                 incoming = await websocket.receive()
+                logger.info("ws.receive keys=%s", sorted(incoming.keys()))
 
                 if incoming.get("bytes") is not None:
+                    logger.info(
+                        "ws.receive_audio bytes=%s",
+                        len(incoming["bytes"]),
+                    )
                     live_request_queue.send_realtime(
                         types.Blob(
                             data=incoming["bytes"],
@@ -414,6 +591,7 @@ async def live(websocket: WebSocket):
                 if not raw_message:
                     continue
 
+                logger.info("ws.receive_text payload=%s", raw_message)
                 message = _parse_client_message(raw_message)
 
                 if isinstance(message, (ActivityStartMessage, PttStartMessage)):
@@ -448,12 +626,15 @@ async def live(websocket: WebSocket):
             task.cancel()
 
     except WebSocketDisconnect:
-        pass
+        logger.info("ws.disconnect")
     except (ValidationError, ValueError, json.JSONDecodeError) as exc:
+        logger.exception("ws.client_error")
         await send_json(_server_message("error", message=str(exc)))
         await websocket.close(code=1003, reason="Invalid websocket message")
     except Exception as exc:
+        logger.exception("ws.internal_error")
         await send_json(_server_message("error", message=str(exc)))
         await websocket.close(code=1011, reason="Internal websocket error")
     finally:
+        logger.info("ws.cleanup")
         live_request_queue.close()

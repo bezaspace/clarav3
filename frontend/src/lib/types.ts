@@ -1,5 +1,7 @@
 export type ScheduleStatus = 'completed' | 'pending';
 export type ScheduleType = 'Mind' | 'Body' | 'Diet' | 'Medicine';
+export type ActivityCardKind = 'schedule' | 'task';
+export type ActivityCardStatus = 'completed' | 'pending' | 'in-progress';
 
 export type TaskStatus = 'todo' | 'in-progress' | 'completed';
 export type TaskPriority = 'low' | 'medium' | 'high';
@@ -36,6 +38,33 @@ export interface DashboardScheduleItem {
 export interface DashboardData {
   profile: DashboardProfile;
   todaysSchedule: DashboardScheduleItem[];
+}
+
+export interface ActivityCard {
+  id: string;
+  kind: ActivityCardKind;
+  title: string;
+  category: string;
+  status: ActivityCardStatus;
+  timeLabel: string;
+  supportingText: string;
+  scheduledFor?: string | null;
+}
+
+export interface CurrentActivityPayload {
+  type: 'current_activity';
+  message?: string;
+  activityCard?: ActivityCard | null;
+  currentItem?: ActivityCard | null;
+  upcomingItem?: ActivityCard | null;
+  pendingTasks?: ActivityCard[];
+}
+
+export interface ScheduleSnapshotPayload {
+  type: 'schedule_snapshot';
+  message?: string;
+  items: ActivityCard[];
+  pendingTasks?: ActivityCard[];
 }
 
 export interface Product {

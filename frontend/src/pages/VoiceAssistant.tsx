@@ -1,7 +1,25 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import {
+  Brain,
+  CheckCircle2,
+  Circle,
+  Clock3,
+  Dumbbell,
+  ListTodo,
+  Pill,
+  Power,
+  PowerOff,
+  Utensils,
+} from 'lucide-react'
 
 import { AudioCaptureSession } from '@/src/audio/AudioCaptureSession'
 import { AudioPlaybackQueue } from '@/src/audio/AudioPlaybackQueue'
+import type {
+  ActivityCard,
+  CurrentActivityPayload,
+  ScheduleSnapshotPayload,
+} from '@/src/lib/types'
+import { cn } from '@/src/lib/utils'
 
 const BACKEND_HTTP_URL =
   import.meta.env.VITE_VOICE_ASSISTANT_HTTP_URL ||
@@ -10,6 +28,7 @@ const BACKEND_HTTP_URL =
 const BACKEND_WS_URL =
   import.meta.env.VITE_VOICE_ASSISTANT_WS_URL ||
   `${BACKEND_HTTP_URL.replace(/^http/i, 'ws').replace(/\/$/, '')}/live`
+const VOICE_DEBUG = import.meta.env.DEV
 
 type ConnectionState = 'idle' | 'connecting' | 'ready' | 'error'
 type VisualState = 'idle' | 'listening' | 'holding' | 'awaiting' | 'speaking' | 'error'
@@ -18,10 +37,133 @@ function getLiveSocketUrl() {
   return BACKEND_WS_URL
 }
 
+function debugLog(message: string, payload?: unknown) {
+  if (!VOICE_DEBUG) {
+    return
+  }
+
+  if (payload === undefined) {
+    console.debug(`[voice-assistant] ${message}`)
+    return
+  }
+
+  console.debug(`[voice-assistant] ${message}`, payload)
+}
+
+function getActivityIcon(category: string, kind: ActivityCard['kind']) {
+  switch (category) {
+    case 'Mind':
+      return <Brain size={16} />
+    case 'Body':
+      return <Dumbbell size={16} />
+    case 'Diet':
+      return <Utensils size={16} />
+    case 'Medicine':
+      return <Pill size={16} />
+    default:
+      return kind === 'task' ? <ListTodo size={16} /> : <Clock3 size={16} />
+  }
+}
+
+function getActivityTone(category: string) {
+  switch (category) {
+    case 'Mind':
+      return 'border-fuchsia-400/25 bg-fuchsia-400/10 text-fuchsia-200'
+    case 'Body':
+      return 'border-sky-400/25 bg-sky-400/10 text-sky-200'
+    case 'Diet':
+      return 'border-amber-400/25 bg-amber-400/10 text-amber-200'
+    case 'Medicine':
+      return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200'
+    default:
+      return 'border-stone-400/20 bg-stone-400/10 text-stone-200'
+  }
+}
+
+function ActivityVisual({ item }: { item: ActivityCard }) {
+  const isCompleted = item.status === 'completed'
+
+  return (
+    <div className="min-w-0 rounded-lg border border-white/10 bg-neutral-950/80 p-4 shadow-2xl shadow-black/30 backdrop-blur-md">
+      <div className="flex items-start justify-between gap-3">
+        <div
+          className={cn(
+            'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]',
+            getActivityTone(item.category)
+          )}
+        >
+          {getActivityIcon(item.category, item.kind)}
+          <span>{item.category}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1 text-[11px] text-stone-400">
+          <Clock3 size={12} />
+          <span>{item.timeLabel || 'Any time'}</span>
+        </div>
+      </div>
+
+      <div className="mt-4 flex gap-3">
+        {isCompleted ? (
+          <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-300" />
+        ) : (
+          <Circle size={18} className="mt-0.5 shrink-0 text-stone-500" />
+        )}
+        <div className="min-w-0">
+          <p
+            className={cn(
+              'truncate text-sm font-semibold',
+              isCompleted ? 'text-stone-400 line-through' : 'text-stone-100'
+            )}
+          >
+            {item.title}
+          </p>
+          <p className="mt-1 line-clamp-2 text-xs leading-5 text-stone-400">
+            {item.supportingText}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function isActivityCardPayload(value: unknown): value is ActivityCard {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const payload = value as Record<string, unknown>
+  return (
+    typeof payload.id === 'string' &&
+    typeof payload.kind === 'string' &&
+    typeof payload.title === 'string' &&
+    typeof payload.category === 'string' &&
+    typeof payload.status === 'string' &&
+    typeof payload.timeLabel === 'string' &&
+    typeof payload.supportingText === 'string'
+  )
+}
+
+function isCurrentActivityPayload(value: unknown): value is CurrentActivityPayload {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  return (value as Record<string, unknown>).type === 'current_activity'
+}
+
+function isScheduleSnapshotPayload(value: unknown): value is ScheduleSnapshotPayload {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const payload = value as Record<string, unknown>
+  return payload.type === 'schedule_snapshot' && Array.isArray(payload.items)
+}
+
 export default function VoiceAssistant() {
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle')
   const [visualState, setVisualState] = useState<VisualState>('idle')
   const [warning, setWarning] = useState('')
+  const [activityVisuals, setActivityVisuals] = useState<ActivityCard[]>([])
 
   const socketRef = useRef<WebSocket | null>(null)
   const playerRef = useRef<AudioPlaybackQueue | null>(null)
@@ -29,7 +171,11 @@ export default function VoiceAssistant() {
   const assistantSampleRateRef = useRef(24000)
   const isPttActiveRef = useRef(false)
   const speakingTimeoutRef = useRef<number | null>(null)
-  const pendingCloseStateRef = useRef<{ connectionState: ConnectionState; visualState: VisualState; warning: string } | null>(null)
+  const pendingCloseStateRef = useRef<{
+    connectionState: ConnectionState
+    visualState: VisualState
+    warning: string
+  } | null>(null)
 
   useEffect(() => {
     return () => {
@@ -82,6 +228,34 @@ export default function VoiceAssistant() {
     }
   }, [connectionState])
 
+  const showActivityVisuals = (items: ActivityCard[]) => {
+    const normalizedItems = items.filter(isActivityCardPayload)
+    if (!normalizedItems.length) {
+      return
+    }
+
+    setActivityVisuals((current) => {
+      const merged = [...normalizedItems, ...current]
+      const seen = new Set<string>()
+      return merged.filter((item) => {
+        if (seen.has(item.id)) {
+          return false
+        }
+        seen.add(item.id)
+        return true
+      }).slice(0, 6)
+    })
+  }
+
+  const showPrimaryActivityVisual = (...items: unknown[]) => {
+    const primaryItem = items.find(isActivityCardPayload)
+    if (!primaryItem) {
+      return
+    }
+
+    setActivityVisuals([primaryItem])
+  }
+
   const markPttActive = (active: boolean) => {
     isPttActiveRef.current = active
   }
@@ -110,13 +284,19 @@ export default function VoiceAssistant() {
   const sendEvent = (payload: Record<string, unknown>) => {
     const socket = socketRef.current
     if (!socket || socket.readyState !== WebSocket.OPEN) {
+      debugLog('sendEvent.skip', {
+        payload,
+        readyState: socket?.readyState,
+      })
       return
     }
+    debugLog('sendEvent', payload)
     socket.send(JSON.stringify(payload))
   }
 
   const ensureConnection = async () => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      debugLog('ensureConnection.skip', { reason: 'already-open' })
       return
     }
 
@@ -152,6 +332,7 @@ export default function VoiceAssistant() {
           : null
 
       socket.onopen = () => {
+        debugLog('socket.onopen', { storedSessionId })
         socket.send(
           JSON.stringify({
             type: 'session_init',
@@ -161,10 +342,15 @@ export default function VoiceAssistant() {
       }
 
       socket.onerror = () => {
+        debugLog('socket.onerror')
         reject(new Error('Connection error. Check backend logs.'))
       }
 
       socket.onclose = () => {
+        debugLog('socket.onclose', {
+          initialized,
+          pendingCloseState: pendingCloseStateRef.current,
+        })
         const pending = pendingCloseStateRef.current
         pendingCloseStateRef.current = null
         markPttActive(false)
@@ -187,6 +373,7 @@ export default function VoiceAssistant() {
       socket.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
         if (typeof event.data === 'string') {
           const parsed = JSON.parse(event.data)
+          debugLog('socket.onmessage.text', parsed)
 
           if (parsed.type === 'session_started') {
             initialized = true
@@ -225,6 +412,23 @@ export default function VoiceAssistant() {
             return
           }
 
+          if (isCurrentActivityPayload(parsed)) {
+            showPrimaryActivityVisual(
+              parsed.activityCard,
+              parsed.currentItem,
+              parsed.upcomingItem
+            )
+            return
+          }
+
+          if (isScheduleSnapshotPayload(parsed)) {
+            showActivityVisuals([
+              ...parsed.items,
+              ...(parsed.pendingTasks || []),
+            ])
+            return
+          }
+
           if (parsed.type === 'state') {
             if (parsed.state === 'thinking' && !isPttActiveRef.current) {
               setVisualState('awaiting')
@@ -247,6 +451,7 @@ export default function VoiceAssistant() {
         }
 
         if (event.data instanceof ArrayBuffer) {
+          debugLog('socket.onmessage.audio', { byteLength: event.data.byteLength })
           playerRef.current?.playPcm16Chunk(
             event.data,
             assistantSampleRateRef.current
@@ -264,6 +469,7 @@ export default function VoiceAssistant() {
   }
 
   const disconnect = async () => {
+    debugLog('disconnect.start')
     pendingCloseStateRef.current = null
 
     if (isPttActiveRef.current) {
@@ -296,14 +502,38 @@ export default function VoiceAssistant() {
 
     setConnectionState('idle')
     setVisualState('idle')
+    setActivityVisuals([])
+    debugLog('disconnect.done')
+  }
+
+  const handleSessionToggle = async () => {
+    if (connectionState === 'idle' || connectionState === 'error') {
+      try {
+        await ensureConnection()
+      } catch (error) {
+        debugLog('sessionToggle.error', error)
+        await disconnect()
+        setWarning((error as Error).message || 'Connection error. Check backend logs.')
+        setVisualState('error')
+        setConnectionState('error')
+      }
+      return
+    }
+
+    await disconnect()
   }
 
   const beginPtt = async () => {
     if (connectionState === 'connecting' || isPttActiveRef.current) {
+      debugLog('beginPtt.skip', {
+        connectionState,
+        isPttActive: isPttActiveRef.current,
+      })
       return
     }
 
     try {
+      debugLog('beginPtt.start', { connectionState })
       if (connectionState !== 'ready') {
         await ensureConnection()
       }
@@ -314,6 +544,7 @@ export default function VoiceAssistant() {
       micRef.current?.startStream()
       sendEvent({ type: 'ptt_start' })
     } catch (error) {
+      debugLog('beginPtt.error', error)
       await disconnect()
       setWarning((error as Error).message || 'Connection error. Check backend logs.')
       setVisualState('error')
@@ -323,9 +554,11 @@ export default function VoiceAssistant() {
 
   const endPtt = () => {
     if (!isPttActiveRef.current) {
+      debugLog('endPtt.skip', { reason: 'not-active' })
       return
     }
 
+    debugLog('endPtt.start')
     markPttActive(false)
     micRef.current?.pauseStream()
     sendEvent({ type: 'ptt_end' })
@@ -335,21 +568,22 @@ export default function VoiceAssistant() {
     }
   }
 
-  const handlePointerDown = async (event: React.MouseEvent) => {
+  const handlePointerDown = async (event: MouseEvent) => {
     event.preventDefault()
     await beginPtt()
   }
 
-  const handlePointerUp = (event: React.MouseEvent) => {
+  const handlePointerUp = (event: MouseEvent) => {
     event.preventDefault()
     endPtt()
   }
 
   const label =
-    connectionState === 'idle'
+    warning ||
+    (connectionState === 'idle'
       ? 'Hold to talk'
       : visualState === 'holding'
-        ? 'Release when done'
+        ? 'Listening'
         : visualState === 'listening'
           ? 'Ready'
           : visualState === 'awaiting'
@@ -358,28 +592,65 @@ export default function VoiceAssistant() {
               ? 'Speaking'
               : visualState === 'error'
                 ? 'Error'
-                : 'Connecting'
+                : 'Connecting')
 
   const orbColorClass =
     visualState === 'holding'
-      ? 'from-emerald-300 to-emerald-500 animate-pulse'
+      ? 'from-emerald-200 via-teal-300 to-emerald-500'
       : visualState === 'speaking'
-        ? 'from-blue-300 to-blue-500'
-        : visualState === 'awaiting'
-          ? 'from-amber-300 to-orange-400'
+        ? 'from-sky-200 via-blue-300 to-indigo-500'
+        : visualState === 'awaiting' || connectionState === 'connecting'
+          ? 'from-amber-200 via-orange-300 to-rose-400'
           : visualState === 'error'
-            ? 'from-rose-300 to-rose-500'
-            : 'from-teal-200 to-cyan-500'
+            ? 'from-rose-200 via-red-400 to-rose-600'
+            : 'from-cyan-100 via-teal-300 to-emerald-400'
+
+  const auraClass =
+    visualState === 'speaking'
+      ? 'bg-blue-400/25 animate-ping'
+      : visualState === 'holding'
+        ? 'bg-emerald-300/25 animate-pulse'
+        : visualState === 'awaiting' || connectionState === 'connecting'
+          ? 'bg-amber-300/20 animate-pulse'
+          : visualState === 'error'
+            ? 'bg-rose-400/25 animate-pulse'
+            : 'bg-teal-300/15'
+
+  const isSessionActive = connectionState === 'ready' || connectionState === 'connecting'
 
   return (
-    <div className="min-h-[calc(100vh-3rem)] flex flex-col items-center justify-center gap-4 py-8 text-stone-100">
-      <p className="text-xs uppercase tracking-[0.3em] text-stone-500">
-        AI Voice Assistant
-      </p>
+    <div className="relative flex min-h-[calc(100vh-3rem)] w-full items-end justify-center overflow-hidden pb-28 md:pb-12">
+      <button
+        type="button"
+        onClick={handleSessionToggle}
+        disabled={connectionState === 'connecting'}
+        className="absolute right-2 top-2 z-10 inline-flex h-10 items-center gap-2 rounded-lg border border-white/10 bg-neutral-950/70 px-3 text-xs font-medium uppercase tracking-[0.14em] text-stone-300 shadow-xl shadow-black/20 backdrop-blur-md transition hover:border-white/20 hover:text-stone-100 disabled:cursor-wait disabled:opacity-60"
+        aria-label={isSessionActive ? 'End voice session' : 'Start voice session'}
+      >
+        {isSessionActive ? <PowerOff size={16} /> : <Power size={16} />}
+        <span>{isSessionActive ? 'End' : 'Start'}</span>
+      </button>
+
+      {activityVisuals.length ? (
+        <div
+          className={cn(
+            'absolute inset-x-0 top-16 mx-auto grid w-full gap-3 px-2',
+            activityVisuals.length === 1
+              ? 'max-w-sm'
+              : 'max-w-3xl sm:grid-cols-2 lg:grid-cols-3'
+          )}
+        >
+          {activityVisuals.map((item) => (
+            <div key={item.id}>
+              <ActivityVisual item={item} />
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <button
-        className={`relative h-40 w-40 rounded-full bg-gradient-to-br ${orbColorClass} shadow-2xl border border-white/20 transition-transform duration-200 ${
-          isPttActiveRef.current ? 'scale-110' : ''
+        className={`relative h-36 w-36 rounded-full border border-white/20 bg-gradient-to-br ${orbColorClass} shadow-[0_0_70px_rgba(45,212,191,0.35)] transition duration-300 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70 md:h-44 md:w-44 ${
+          visualState === 'holding' ? 'scale-110' : ''
         }`}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
@@ -389,28 +660,15 @@ export default function VoiceAssistant() {
             endPtt()
           }
         }}
-        aria-label="Hold to talk"
+        aria-label={label}
       >
-        <span className="absolute inset-5 rounded-full bg-black/10 border border-white/20" />
-        <span className="sr-only">{label}</span>
+        <span className={`absolute -inset-6 rounded-full ${auraClass}`} />
+        <span className="absolute inset-4 rounded-full border border-white/25 bg-white/10 shadow-inner" />
+        <span className="absolute inset-10 rounded-full bg-white/20 blur-sm" />
+        <span className="sr-only" aria-live="polite">
+          {label}
+        </span>
       </button>
-
-      <div className="text-center px-4">
-        <p className="text-sm text-stone-100">{warning || label}</p>
-        <p className="text-xs text-stone-500 mt-1">Hold orb or spacebar to talk</p>
-      </div>
-
-      <div className="mt-2 flex gap-2 flex-wrap justify-center">
-        {connectionState !== 'idle' ? (
-          <button
-            type="button"
-            onClick={() => disconnect()}
-            className="px-4 py-2 rounded-lg border border-stone-700/80 bg-stone-900/50 text-xs uppercase tracking-wide"
-          >
-            Disconnect
-          </button>
-        ) : null}
-      </div>
     </div>
   )
 }

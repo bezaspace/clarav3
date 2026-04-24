@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card } from '@/src/components/ui/Card';
 import { cn } from '@/src/lib/utils';
 import { api } from '@/src/lib/api';
-import type { DashboardData } from '@/src/lib/types';
+import type { DashboardData, DashboardProfile } from '@/src/lib/types';
 import { 
   User, 
   ShieldAlert, 
@@ -20,6 +20,18 @@ import {
   Circle
 } from 'lucide-react';
 
+const EMPTY_PROFILE: DashboardProfile = {
+  name: '',
+  age: 0,
+  bloodType: '',
+  prakriti: '',
+  status: '',
+  allergies: [],
+  conditions: [],
+  history: [],
+  targets: [],
+};
+
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DashboardData | null>(null);
@@ -35,17 +47,7 @@ export default function Dashboard() {
       })
       .catch(() => {
         if (active) {
-          setData({ profile: {
-            name: '',
-            age: 0,
-            bloodType: '',
-            prakriti: '',
-            status: '',
-            allergies: [],
-            conditions: [],
-            history: [],
-            targets: [],
-          }, todaysSchedule: [] });
+          setData({ profile: EMPTY_PROFILE, todaysSchedule: [] });
         }
       })
       .finally(() => active && setLoading(false));
@@ -63,7 +65,15 @@ export default function Dashboard() {
     return <div className="text-sm text-stone-500">Unable to load dashboard.</div>;
   }
 
-  const { profile, todaysSchedule } = data;
+  const profile = {
+    ...EMPTY_PROFILE,
+    ...(data.profile ?? {}),
+    allergies: Array.isArray(data.profile?.allergies) ? data.profile.allergies : [],
+    conditions: Array.isArray(data.profile?.conditions) ? data.profile.conditions : [],
+    history: Array.isArray(data.profile?.history) ? data.profile.history : [],
+    targets: Array.isArray(data.profile?.targets) ? data.profile.targets : [],
+  };
+  const todaysSchedule = Array.isArray(data.todaysSchedule) ? data.todaysSchedule : [];
 
   const getIconForType = (type: string) => {
     switch (type) {
