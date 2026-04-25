@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card } from '@/src/components/ui/Card';
 import { cn } from '@/src/lib/utils';
 import { api } from '@/src/lib/api';
-import type { DashboardData, DashboardProfile } from '@/src/lib/types';
+import type { CareActivity, DashboardData, DashboardProfile } from '@/src/lib/types';
 import { 
   User, 
   ShieldAlert, 
@@ -17,7 +17,11 @@ import {
   Pill,
   Clock,
   CheckCircle2,
-  Circle
+  Circle,
+  ShoppingBag,
+  Truck,
+  TestTubes,
+  Trash2
 } from 'lucide-react';
 
 const EMPTY_PROFILE: DashboardProfile = {
@@ -35,19 +39,25 @@ const EMPTY_PROFILE: DashboardProfile = {
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DashboardData | null>(null);
+  const [careActivity, setCareActivity] = useState<CareActivity[]>([]);
+  const [deletingCareId, setDeletingCareId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    api
-      .dashboard()
-      .then((payload) => {
+    Promise.all([
+      api.dashboard(),
+      api.careActivity(true),
+    ])
+      .then(([payload, activity]) => {
         if (active) {
           setData(payload);
+          setCareActivity(activity);
         }
       })
       .catch(() => {
         if (active) {
           setData({ profile: EMPTY_PROFILE, todaysSchedule: [] });
+          setCareActivity([]);
         }
       })
       .finally(() => active && setLoading(false));
@@ -74,6 +84,38 @@ export default function Dashboard() {
     targets: Array.isArray(data.profile?.targets) ? data.profile.targets : [],
   };
   const todaysSchedule = Array.isArray(data.todaysSchedule) ? data.todaysSchedule : [];
+
+  const getCareIcon = (kind: CareActivity['kind']) => {
+    switch (kind) {
+      case 'food': return <Truck size={16} />;
+      case 'doctor': return <Stethoscope size={16} />;
+      case 'lab': return <TestTubes size={16} />;
+      default: return <ShoppingBag size={16} />;
+    }
+  };
+
+  const getCareLabel = (activity: CareActivity) => {
+    if (activity.kind === 'food') {
+      return activity.eta ? `Delivery in ${activity.eta}` : 'Food delivery';
+    }
+    if (activity.kind === 'doctor' || activity.kind === 'lab') {
+      return activity.scheduledFor || 'Next available slot';
+    }
+    return 'Shop order';
+  };
+
+  const deleteCareActivity = async (activityId: string) => {
+    const previous = careActivity;
+    setDeletingCareId(activityId);
+    setCareActivity((current) => current.filter((activity) => activity.id !== activityId));
+    try {
+      await api.deleteCareActivity(activityId);
+    } catch {
+      setCareActivity(previous);
+    } finally {
+      setDeletingCareId(null);
+    }
+  };
 
   const getIconForType = (type: string) => {
     switch (type) {
@@ -180,6 +222,50 @@ export default function Dashboard() {
           </Card>
         </div>
       </div>
+
+      {careActivity.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 px-2">
+            <ShoppingBag size={22} className="text-ayu-saffron" />
+            <h3 className="text-xl font-serif text-stone-100">Upcoming Care</h3>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {careActivity.slice(0, 6).map((activity) => (
+              <Card key={activity.id} className="flex flex-col gap-3 border-ayu-saffron/20 bg-ayu-saffron/5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-wider text-ayu-saffron">
+                    {getCareIcon(activity.kind)}
+                    <span>{activity.kind}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-lg border border-ayu-border bg-ayu-card px-2 py-1 text-[10px] font-bold uppercase text-stone-500">
+                      {activity.status}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => deleteCareActivity(activity.id)}
+                      disabled={deletingCareId === activity.id}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 transition hover:bg-red-500 hover:text-white disabled:cursor-wait disabled:opacity-60"
+                      aria-label={`Delete ${activity.title}`}
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-stone-200">{activity.title}</h4>
+                  <p className="mt-1 text-[11px] text-stone-500">
+                    {activity.provider ? `${activity.provider} · ` : ''}{getCareLabel(activity)}
+                  </p>
+                </div>
+                <div className="text-xs font-bold text-stone-300">₹{activity.price}</div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Today's Schedule Timeline Section */}
       <div className="space-y-4">

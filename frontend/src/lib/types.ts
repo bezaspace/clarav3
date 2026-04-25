@@ -67,6 +67,40 @@ export interface ScheduleSnapshotPayload {
   pendingTasks?: ActivityCard[];
 }
 
+export interface CareRecommendation {
+  id: string;
+  kind: CareActivityKind;
+  title: string;
+  provider: string;
+  detail: string;
+  price: number;
+  rating: number;
+  image: string;
+  category: string;
+  offer: string;
+  eta: string;
+  isOnline: boolean;
+  reviews: number;
+  location: string;
+  availability: string;
+}
+
+export interface CareRecommendationsPayload {
+  type: 'care_recommendations' | 'care_activity_confirmation_required';
+  status: string;
+  message?: string;
+  kind?: CareActivityKind;
+  query?: string;
+  recommendations: CareRecommendation[];
+}
+
+export interface CareActivityCreatedPayload {
+  type: 'care_activity_created';
+  status: 'success';
+  message?: string;
+  activity: CareActivity;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -106,6 +140,23 @@ export interface FoodItem {
   image: string;
   offer?: string;
   veg?: boolean;
+}
+
+export type CareActivityKind = 'product' | 'food' | 'doctor' | 'lab';
+export type CareActivityStatus = 'ordered' | 'confirmed' | 'scheduled' | 'preparing' | 'in-transit' | 'completed' | 'cancelled';
+
+export interface CareActivity {
+  id: string;
+  kind: CareActivityKind;
+  status: CareActivityStatus;
+  title: string;
+  provider: string;
+  scheduledFor: string;
+  eta: string;
+  price: number;
+  sourceItemId: string;
+  createdAt: string;
+  note: string;
 }
 
 export interface CareData {

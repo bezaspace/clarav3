@@ -6,16 +6,27 @@ import {
   Clock3,
   Dumbbell,
   ListTodo,
+  MapPin,
   Pill,
   Power,
   PowerOff,
+  ShoppingBag,
+  Star,
+  Stethoscope,
+  TestTubes,
+  Truck,
   Utensils,
+  Video,
 } from 'lucide-react'
 
 import { AudioCaptureSession } from '@/src/audio/AudioCaptureSession'
 import { AudioPlaybackQueue } from '@/src/audio/AudioPlaybackQueue'
 import type {
   ActivityCard,
+  CareActivity,
+  CareActivityCreatedPayload,
+  CareRecommendation,
+  CareRecommendationsPayload,
   CurrentActivityPayload,
   ScheduleSnapshotPayload,
 } from '@/src/lib/types'
@@ -125,6 +136,119 @@ function ActivityVisual({ item }: { item: ActivityCard }) {
   )
 }
 
+function getCareIcon(kind: CareRecommendation['kind']) {
+  switch (kind) {
+    case 'food':
+      return <Truck size={16} />
+    case 'doctor':
+      return <Stethoscope size={16} />
+    case 'lab':
+      return <TestTubes size={16} />
+    default:
+      return <ShoppingBag size={16} />
+  }
+}
+
+function getCareTone(kind: CareRecommendation['kind']) {
+  switch (kind) {
+    case 'food':
+      return 'border-red-400/25 bg-red-400/10 text-red-200'
+    case 'doctor':
+      return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200'
+    case 'lab':
+      return 'border-sky-400/25 bg-sky-400/10 text-sky-200'
+    default:
+      return 'border-amber-400/25 bg-amber-400/10 text-amber-200'
+  }
+}
+
+function CareOptionVisual({ item }: { item: CareRecommendation }) {
+  const detailParts = [
+    item.provider,
+    item.detail,
+    item.availability,
+    item.eta ? `Delivery ${item.eta}` : '',
+  ].filter(Boolean)
+
+  return (
+    <div className="min-w-0 overflow-hidden rounded-lg border border-white/10 bg-neutral-950/80 shadow-2xl shadow-black/30 backdrop-blur-md">
+      <div className="flex h-24 items-center justify-center bg-white/[0.03] text-5xl">
+        {item.image || getCareIcon(item.kind)}
+      </div>
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div
+            className={cn(
+              'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]',
+              getCareTone(item.kind)
+            )}
+          >
+            {getCareIcon(item.kind)}
+            <span>{item.kind}</span>
+          </div>
+          {item.offer ? (
+            <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-1 text-[10px] font-bold uppercase text-amber-100">
+              {item.offer}
+            </span>
+          ) : null}
+        </div>
+
+        <div className="mt-4">
+          <p className="truncate text-sm font-semibold text-stone-100">{item.title}</p>
+          <p className="mt-1 line-clamp-2 text-xs leading-5 text-stone-400">
+            {detailParts.join(' · ') || item.category || 'Care option'}
+          </p>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+          <div className="text-sm font-bold text-stone-100">₹{item.price}</div>
+          <div className="flex items-center gap-1 text-xs font-semibold text-stone-300">
+            <Star size={12} className="fill-amber-300 text-amber-300" />
+            <span>{item.rating || '-'}</span>
+          </div>
+        </div>
+
+        {(item.location || item.isOnline) && (
+          <div className="mt-3 flex items-center gap-3 text-[11px] text-stone-400">
+            {item.location ? (
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <MapPin size={12} />
+                <span className="truncate">{item.location}</span>
+              </span>
+            ) : null}
+            {item.isOnline ? (
+              <span className="inline-flex items-center gap-1 text-emerald-200">
+                <Video size={12} />
+                Online
+              </span>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function careActivityToRecommendation(activity: CareActivity): CareRecommendation {
+  return {
+    id: activity.sourceItemId || activity.id,
+    kind: activity.kind,
+    title: activity.title,
+    provider: activity.provider,
+    detail: activity.scheduledFor || activity.eta || activity.status,
+    price: activity.price,
+    rating: 0,
+    image: '',
+    category: '',
+    offer: '',
+    eta: activity.eta,
+    isOnline: false,
+    reviews: 0,
+    location: '',
+    availability: activity.scheduledFor,
+  }
+}
+
 function isActivityCardPayload(value: unknown): value is ActivityCard {
   if (!value || typeof value !== 'object') {
     return false
@@ -159,11 +283,35 @@ function isScheduleSnapshotPayload(value: unknown): value is ScheduleSnapshotPay
   return payload.type === 'schedule_snapshot' && Array.isArray(payload.items)
 }
 
+function isCareRecommendationsPayload(value: unknown): value is CareRecommendationsPayload {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const payload = value as Record<string, unknown>
+  return (
+    (payload.type === 'care_recommendations' ||
+      payload.type === 'care_activity_confirmation_required') &&
+    Array.isArray(payload.recommendations)
+  )
+}
+
+function isCareActivityCreatedPayload(value: unknown): value is CareActivityCreatedPayload {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const payload = value as Record<string, unknown>
+  return payload.type === 'care_activity_created' && typeof payload.activity === 'object'
+}
+
 export default function VoiceAssistant() {
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle')
   const [visualState, setVisualState] = useState<VisualState>('idle')
   const [warning, setWarning] = useState('')
   const [activityVisuals, setActivityVisuals] = useState<ActivityCard[]>([])
+  const [careVisuals, setCareVisuals] = useState<CareRecommendation[]>([])
+  const [careToast, setCareToast] = useState('')
 
   const socketRef = useRef<WebSocket | null>(null)
   const playerRef = useRef<AudioPlaybackQueue | null>(null)
@@ -176,11 +324,15 @@ export default function VoiceAssistant() {
     visualState: VisualState
     warning: string
   } | null>(null)
+  const careToastTimeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
     return () => {
       if (speakingTimeoutRef.current !== null) {
         window.clearTimeout(speakingTimeoutRef.current)
+      }
+      if (careToastTimeoutRef.current !== null) {
+        window.clearTimeout(careToastTimeoutRef.current)
       }
       micRef.current?.stop().catch(() => {})
       playerRef.current?.close().catch(() => {})
@@ -245,6 +397,7 @@ export default function VoiceAssistant() {
         return true
       }).slice(0, 6)
     })
+    setCareVisuals([])
   }
 
   const showPrimaryActivityVisual = (...items: unknown[]) => {
@@ -254,6 +407,28 @@ export default function VoiceAssistant() {
     }
 
     setActivityVisuals([primaryItem])
+    setCareVisuals([])
+  }
+
+  const showCareVisuals = (items: CareRecommendation[]) => {
+    const normalizedItems = items.filter((item) => item.id && item.title)
+    if (!normalizedItems.length) {
+      return
+    }
+
+    setCareVisuals(normalizedItems.slice(0, 6))
+    setActivityVisuals([])
+  }
+
+  const showCareToast = (message: string) => {
+    setCareToast(message)
+    if (careToastTimeoutRef.current !== null) {
+      window.clearTimeout(careToastTimeoutRef.current)
+    }
+    careToastTimeoutRef.current = window.setTimeout(() => {
+      setCareToast('')
+      careToastTimeoutRef.current = null
+    }, 3600)
   }
 
   const markPttActive = (active: boolean) => {
@@ -429,6 +604,17 @@ export default function VoiceAssistant() {
             return
           }
 
+          if (isCareRecommendationsPayload(parsed)) {
+            showCareVisuals(parsed.recommendations)
+            return
+          }
+
+          if (isCareActivityCreatedPayload(parsed)) {
+            showCareVisuals([careActivityToRecommendation(parsed.activity)])
+            showCareToast(parsed.message || `${parsed.activity.title} has been booked.`)
+            return
+          }
+
           if (parsed.type === 'state') {
             if (parsed.state === 'thinking' && !isPttActiveRef.current) {
               setVisualState('awaiting')
@@ -503,6 +689,8 @@ export default function VoiceAssistant() {
     setConnectionState('idle')
     setVisualState('idle')
     setActivityVisuals([])
+    setCareVisuals([])
+    setCareToast('')
     debugLog('disconnect.done')
   }
 
@@ -645,6 +833,29 @@ export default function VoiceAssistant() {
               <ActivityVisual item={item} />
             </div>
           ))}
+        </div>
+      ) : null}
+
+      {careVisuals.length ? (
+        <div
+          className={cn(
+            'absolute inset-x-0 top-16 mx-auto grid w-full gap-3 px-2',
+            careVisuals.length === 1
+              ? 'max-w-sm'
+              : 'max-w-4xl sm:grid-cols-2 lg:grid-cols-3'
+          )}
+        >
+          {careVisuals.map((item) => (
+            <div key={`${item.kind}-${item.id}`}>
+              <CareOptionVisual item={item} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {careToast ? (
+        <div className="absolute inset-x-4 top-4 z-20 mx-auto max-w-sm rounded-lg border border-emerald-300/20 bg-emerald-400/15 px-4 py-3 text-sm font-semibold text-emerald-100 shadow-2xl shadow-black/30 backdrop-blur-md">
+          {careToast}
         </div>
       ) : null}
 

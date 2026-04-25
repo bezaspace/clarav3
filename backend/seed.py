@@ -19,6 +19,7 @@ def main() -> None:
         "care_products": payload["care_products"],
         "care_professionals": payload["care_professionals"],
         "care_food": payload["care_food"],
+        "care_activity": [],
         "journal_tasks": payload["journal_tasks"],
         "journal_entries": payload["journal_entries"],
         "biomarkers": payload["biomarkers"],

@@ -8,7 +8,7 @@ import {
 import { cn } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from '@/src/lib/api';
-import type { FoodItem, Professional, Product } from '@/src/lib/types';
+import type { CareActivity, FoodItem, Professional, Product } from '@/src/lib/types';
 
 const fallbackProducts: Product[] = [];
 const fallbackProfessionals: Professional[] = [];
@@ -21,6 +21,9 @@ export default function Care() {
   const [products, setProducts] = useState<Product[]>(fallbackProducts);
   const [professionals, setProfessionals] = useState<Professional[]>(fallbackProfessionals);
   const [foodItems, setFoodItems] = useState<FoodItem[]>(fallbackFoodItems);
+  const [careActivity, setCareActivity] = useState<CareActivity[]>([]);
+  const [busyItemId, setBusyItemId] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
     let isActive = true;
@@ -29,18 +32,22 @@ export default function Care() {
       api.careProducts(),
       api.careProfessionals(),
       api.careFood(),
+      api.careActivity(true),
     ])
-      .then(([productsData, professionalsData, foodData]) => {
+      .then(([productsData, professionalsData, foodData, activityData]) => {
         if (!isActive) return;
         setProducts(productsData);
         setProfessionals(professionalsData);
         setFoodItems(foodData);
+        setCareActivity(activityData);
+        setCartCount(activityData.filter((activity) => ['product', 'food'].includes(activity.kind)).length);
       })
       .catch(() => {
         if (!isActive) return;
         setProducts(fallbackProducts);
         setProfessionals(fallbackProfessionals);
         setFoodItems(fallbackFoodItems);
+        setCareActivity([]);
       })
       .finally(() => {
         if (isActive) {
@@ -52,6 +59,30 @@ export default function Care() {
       isActive = false;
     };
   }, []);
+
+  const recordActivity = (activity: CareActivity) => {
+    setCareActivity((current) => [activity, ...current]);
+    if (['product', 'food'].includes(activity.kind)) {
+      setCartCount((current) => current + 1);
+    }
+    setNotice(`${activity.title} ${activity.kind === 'food' || activity.kind === 'product' ? 'ordered' : 'booked'}.`);
+  };
+
+  const createActivity = async (
+    sourceItemId: string,
+    request: () => Promise<CareActivity>
+  ) => {
+    setBusyItemId(sourceItemId);
+    setNotice('');
+    try {
+      const activity = await request();
+      recordActivity(activity);
+    } catch (error) {
+      setNotice((error as Error).message || 'Unable to complete this request.');
+    } finally {
+      setBusyItemId(null);
+    }
+  };
 
   if (loading) {
     return <div className="text-sm text-stone-500">Loading...</div>;
@@ -100,8 +131,10 @@ export default function Care() {
                 <span className="text-sm font-bold text-stone-100">₹{product.price}</span>
               </div>
               <button 
-                onClick={() => setCartCount(c => c + 1)}
+                onClick={() => createActivity(product.id, () => api.createCareOrder(product.id))}
+                disabled={busyItemId === product.id}
                 className="bg-ayu-card border border-ayu-border hover:bg-ayu-saffron hover:text-ayu-bg hover:border-ayu-saffron p-2 rounded-xl transition-all shadow-sm"
+                aria-label={`Order ${product.name}`}
               >
                 <Plus size={16} />
               </button>
@@ -172,8 +205,17 @@ export default function Care() {
                 <p className="text-[10px] text-stone-600 uppercase font-bold">Earliest Slot</p>
                 <p className="text-xs text-ayu-green font-bold">{item.availability}</p>
               </div>
-              <button className="px-5 py-2 bg-ayu-card hover:bg-ayu-green hover:text-white border border-ayu-border hover:border-ayu-green rounded-xl text-xs font-bold transition-all">
-                Book Now
+              <button
+                onClick={() =>
+                  createActivity(
+                    item.id,
+                    () => api.createCareBooking(item.type === 'Doctor' ? 'doctor' : 'lab', item.id)
+                  )
+                }
+                disabled={busyItemId === item.id}
+                className="px-5 py-2 bg-ayu-card hover:bg-ayu-green hover:text-white border border-ayu-border hover:border-ayu-green rounded-xl text-xs font-bold transition-all disabled:opacity-60"
+              >
+                {busyItemId === item.id ? 'Booking' : 'Book Now'}
               </button>
             </div>
           </div>
@@ -234,10 +276,11 @@ export default function Care() {
                 <span className="text-sm font-bold text-stone-100">₹{item.price}</span>
               </div>
               <button 
-                onClick={() => setCartCount(c => c + 1)}
+                onClick={() => createActivity(item.id, () => api.createFoodOrder(item.id))}
+                disabled={busyItemId === item.id}
                 className="bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 hover:text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all"
               >
-                ADD
+                {busyItemId === item.id ? 'ADDING' : 'ADD'}
               </button>
             </div>
           </div>
@@ -312,6 +355,26 @@ export default function Care() {
           </div>
         )}
       </header>
+
+      {notice && (
+        <div className="rounded-xl border border-ayu-green/20 bg-ayu-green/10 px-4 py-3 text-xs font-bold text-ayu-green">
+          {notice}
+        </div>
+      )}
+
+      {careActivity.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {careActivity.slice(0, 4).map((activity) => (
+            <div
+              key={activity.id}
+              className="rounded-xl border border-ayu-border bg-ayu-card px-3 py-2 text-xs text-stone-300"
+            >
+              <span className="font-bold text-stone-100">{activity.title}</span>
+              <span className="text-stone-500"> · {activity.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <AnimatePresence mode="wait">
         {activeTab === 'shop' && renderShop()}

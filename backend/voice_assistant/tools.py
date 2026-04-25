@@ -12,6 +12,7 @@ else:
     ToolContext = Any
 
 from voice_assistant.db import get_section
+from voice_assistant.care import build_care_tool_response
 
 
 LOCAL_TIMEZONE = ZoneInfo("Asia/Kolkata")
@@ -19,6 +20,116 @@ TIME_FORMAT = "%I:%M %p"
 SCHEDULE_TIMEZONE_STATE_KEY = "app:schedule_timezone"
 SCHEDULE_SUMMARY_STATE_KEY = "app:schedule_summary"
 logger = logging.getLogger("voice_assistant.tools")
+
+
+def manage_care_services(
+    action: str = "recommend",
+    kind: str | None = None,
+    query: str | None = None,
+    source_item_id: str | None = None,
+    confirmed: bool = False,
+    note: str | None = None,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
+    """Recommends or creates Care shop orders, food orders, doctor bookings, and lab bookings.
+
+    Use this tool when the user needs help buying groceries or health products,
+    ordering food, finding a doctor, booking a doctor appointment, finding a lab,
+    or booking a lab test from the Care page.
+
+    For recommendations, use action="recommend" and include kind and query when
+    known. For creating an order or booking, use action="create", the item kind,
+    the source item id from recommendations or catalog data, and confirmed=true.
+    Never create an order or booking unless the user has clearly confirmed it.
+    """
+
+    del tool_context
+    return build_care_tool_response(
+        action=action,
+        kind=kind,
+        query=query,
+        source_item_id=source_item_id,
+        confirmed=confirmed,
+        note=note,
+    )
+
+
+def get_health_snapshot(
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
+    """Returns the user's full health snapshot from Home and Progress data.
+
+    You MUST use this tool before answering questions about:
+    - allergies, sensitivities, clinical history, or active monitoring
+    - biomarker status, optimization targets, or biological progress
+    - diet, medication, mental health, workout, or adherence metrics
+    - the user's overall health picture or health context
+
+    Do not use this tool for schedule-only questions. Use the schedule tools
+    for next activity, today's plan, pending schedule, or agenda questions.
+    """
+
+    del tool_context
+
+    dashboard = _load_mapping_section("dashboard")
+    profile = dashboard.get("profile")
+    if not isinstance(profile, dict):
+        dashboard["profile"] = {}
+    todays_schedule = dashboard.get("todaysSchedule")
+    if not isinstance(todays_schedule, list):
+        dashboard["todaysSchedule"] = []
+
+    biomarkers = _load_list_section("biomarkers")
+    biomarkers_summary = _load_mapping_section("biomarkers_summary")
+    diet = _load_mapping_section(
+        "diet",
+        fallback={"historyData": [], "sattvicGoal": 0},
+    )
+    mental_health = _load_mapping_section(
+        "mental_health",
+        fallback={"historyData": [], "adherenceData": [], "quickStats": {}},
+    )
+    workouts = _load_mapping_section(
+        "workouts",
+        fallback={"workoutData": [], "sessions": [], "milestone": {}},
+    )
+    medication = _load_mapping_section(
+        "medication",
+        fallback={"overview": {}, "adherenceRows": []},
+    )
+
+    result = {
+        "type": "health_snapshot",
+        "generatedAt": datetime.now(LOCAL_TIMEZONE).isoformat(),
+        "dashboard": dashboard,
+        "progress": {
+            "biomarkers": biomarkers,
+            "biomarkersSummary": biomarkers_summary,
+            "diet": diet,
+            "mentalHealth": mental_health,
+            "workouts": workouts,
+            "medication": medication,
+        },
+        "sourceSections": [
+            "dashboard",
+            "biomarkers",
+            "biomarkers_summary",
+            "diet",
+            "mental_health",
+            "workouts",
+            "medication",
+        ],
+    }
+    logger.info(
+        "tool.get_health_snapshot biomarkers=%s diet_points=%s mental_points=%s workout_sessions=%s",
+        len(biomarkers),
+        len(diet.get("historyData", [])) if isinstance(diet.get("historyData"), list) else 0,
+        len(mental_health.get("historyData", []))
+        if isinstance(mental_health.get("historyData"), list)
+        else 0,
+        len(workouts.get("sessions", [])) if isinstance(workouts.get("sessions"), list) else 0,
+    )
+    return result
 
 
 def get_current_schedule_item(
@@ -99,6 +210,7 @@ def get_current_schedule_item(
         (selected_card or {}).get("id"),
     )
     return result
+
 
 def get_today_schedule(
     timezone: str | None = None,
@@ -182,6 +294,23 @@ def _load_schedule_data(
     )
     now = _resolve_now(resolved_timezone, date=date, now_iso=now_iso)
     return schedule, journal_tasks, now
+
+
+def _load_mapping_section(
+    section: str,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = get_section(section)
+    if isinstance(payload, dict):
+        return payload
+    return dict(fallback or {})
+
+
+def _load_list_section(section: str) -> list[dict[str, Any]]:
+    payload = get_section(section)
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return []
 
 
 def _resolve_timezone(

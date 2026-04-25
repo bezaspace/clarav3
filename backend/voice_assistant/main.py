@@ -12,6 +12,7 @@ from voice_assistant.db import get_section
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi import WebSocket
 from fastapi import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +27,9 @@ from pydantic import ValidationError
 
 from voice_assistant.agent import create_voice_assistant_agent
 from voice_assistant.agent import voice_assistant_agent
+from voice_assistant.care import create_care_activity
+from voice_assistant.care import delete_care_activity
+from voice_assistant.care import load_care_activity
 from voice_assistant.monkey_patch import patch_gemini_3_1_support
 from seed_data import get_seed_payload
 from voice_assistant.tools import SCHEDULE_SUMMARY_STATE_KEY
@@ -79,6 +83,11 @@ class PttEndMessage(BaseModel):
 
 class StopSessionMessage(BaseModel):
     type: Literal["stop_session"]
+
+
+class CreateCareActivityRequest(BaseModel):
+    sourceItemId: str
+    note: str | None = None
 
 
 ClientMessage = (
@@ -155,6 +164,43 @@ async def get_care_professionals():
 @app.get("/api/care/food")
 async def get_care_food():
     return _load_payload("care_food", [])
+
+
+@app.get("/api/care/activity")
+async def get_care_activity(active_only: bool = False):
+    return load_care_activity(active_only=active_only)
+
+
+@app.post("/api/care/orders")
+async def create_care_order(request: CreateCareActivityRequest):
+    try:
+        return create_care_activity("product", request.sourceItemId, note=request.note)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/care/food-orders")
+async def create_care_food_order(request: CreateCareActivityRequest):
+    try:
+        return create_care_activity("food", request.sourceItemId, note=request.note)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/care/bookings")
+async def create_care_booking(kind: Literal["doctor", "lab"], request: CreateCareActivityRequest):
+    try:
+        return create_care_activity(kind, request.sourceItemId, note=request.note)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.delete("/api/care/activity/{activity_id}")
+async def remove_care_activity(activity_id: str):
+    try:
+        return delete_care_activity(activity_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @app.get("/api/journal")
@@ -324,7 +370,13 @@ def _extract_tool_payloads(event: object) -> list[dict[str, Any]]:
         parsed = _parse_function_response(function_response)
         if not parsed:
             continue
-        if parsed.get("type") in {"current_activity", "schedule_snapshot"}:
+        if parsed.get("type") in {
+            "current_activity",
+            "schedule_snapshot",
+            "care_activity_confirmation_required",
+            "care_activity_created",
+            "care_recommendations",
+        }:
             payloads.append(parsed)
     return payloads
 

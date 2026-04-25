@@ -123,6 +123,7 @@ def get_seed_payload() -> dict[str, Any]:
             ],
         },
         "care_products": [
+            {"id": "31", "name": "Seasonal Fruit Basket", "category": "Groceries", "price": 180, "unit": "4 fresh fruits", "rating": 4.8, "image": "🍎", "tag": "Fresh Today"},
             {"id": "1", "name": "A2 Desi Cow Ghee", "category": "Groceries", "price": 950, "originalPrice": 1100, "unit": "500ml", "rating": 4.9, "image": "🍯", "tag": "Best Seller", "isOffer": True},
             {"id": "2", "name": "Organic Ragi (Finger Millet)", "category": "Groceries", "price": 85, "unit": "1kg", "rating": 4.7, "image": "🌾"},
             {"id": "3", "name": "Cold Pressed Groundnut Oil", "category": "Groceries", "price": 240, "unit": "1L", "rating": 4.8, "image": "🫗"},
