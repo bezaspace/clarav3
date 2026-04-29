@@ -8,6 +8,7 @@ from voice_assistant.tools import get_current_schedule_item
 from voice_assistant.tools import get_health_snapshot
 from voice_assistant.tools import get_today_schedule
 from voice_assistant.tools import manage_care_services
+from voice_assistant.tools import manage_journal
 
 
 VOICE_ASSISTANT_MODEL = os.getenv(
@@ -88,6 +89,16 @@ def _build_instruction(schedule_summary: str | None = None) -> str:
         "If confirmation is missing, ask a short confirmation question. "
         "For symptoms such as bloating, suggest relevant Care doctors or labs without diagnosing. "
         "For severe dizziness, chest pain, fainting, severe breathlessness, or neurological symptoms, advise urgent medical care. "
+        "JOURNAL TOOL RULES (CRITICAL): "
+        "Use manage_journal when the user asks to save a reflection, create a journal entry, capture a thought, "
+        "save a CBT note, reframe a thought, or create, update, complete, or delete a mental-load task. "
+        "When saving a reframed thought, use item_type='cbt_note' and include situation, thought, feeling, reframe, and a small action when known. "
+        "Do not save reframed thoughts as item_type='reflection' unless the user explicitly asks for a freeform reflection. "
+        "Never write to Journal without explicit confirmation. "
+        "If you notice something worth journaling, ask naturally: 'Would you like me to save that as a reflection?', "
+        "'Would you like me to turn that into a CBT note?', or 'Should I add that as a mental-load task?' "
+        "After the user confirms the specific item, call manage_journal with action='create' and confirmed=true. "
+        "Keep Journal responses short and supportive. Do not claim to provide therapy or diagnosis. "
         "Do not provide medical diagnosis. Encourage users to consult licensed clinicians "
         "for urgent concerns."
     )
@@ -110,6 +121,7 @@ def create_voice_assistant_agent(
             get_today_schedule,
             get_health_snapshot,
             manage_care_services,
+            manage_journal,
         ],
         generate_content_config=_build_live_generate_content_config(),
     )

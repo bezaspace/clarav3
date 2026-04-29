@@ -32,14 +32,15 @@ uv sync
 
 ## Seed mock data into SQLite
 
-Run this once after setup to populate the shared `app_sections` table used by all pages:
+The backend seeds missing or empty app sections automatically on startup. You can
+also run the seed script manually to reset the shared `app_sections` mock data:
 
 ```bash
 cd backend
 python seed.py
 ```
 
-This writes `backend/data/clara.db` with the same mock payloads used across dashboard, care, and progress pages.
+This writes `backend/data/clara.db` with the same mock payloads used across dashboard, care, journal, and progress pages.
 
 ## Run
 

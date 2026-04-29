@@ -30,7 +30,14 @@ from voice_assistant.agent import voice_assistant_agent
 from voice_assistant.care import create_care_activity
 from voice_assistant.care import delete_care_activity
 from voice_assistant.care import load_care_activity
+from voice_assistant.journal import create_cbt_note
+from voice_assistant.journal import create_journal_entry
+from voice_assistant.journal import create_journal_task
+from voice_assistant.journal import delete_journal_task
+from voice_assistant.journal import load_journal
+from voice_assistant.journal import update_journal_task
 from voice_assistant.monkey_patch import patch_gemini_3_1_support
+from seed import seed_database_if_empty
 from seed_data import get_seed_payload
 from voice_assistant.tools import SCHEDULE_SUMMARY_STATE_KEY
 from voice_assistant.tools import SCHEDULE_TIMEZONE_STATE_KEY
@@ -90,6 +97,41 @@ class CreateCareActivityRequest(BaseModel):
     note: str | None = None
 
 
+class CreateJournalEntryRequest(BaseModel):
+    title: str
+    content: str
+    mood: str | None = None
+    tags: list[str] | None = None
+    source: Literal["assistant", "manual"] = "manual"
+
+
+class CreateCbtNoteRequest(BaseModel):
+    situation: str
+    thought: str
+    feeling: str
+    reframe: str
+    action: str
+    linkedEntryId: str | None = None
+    source: Literal["assistant", "manual"] = "manual"
+
+
+class CreateJournalTaskRequest(BaseModel):
+    title: str
+    priority: Literal["low", "medium", "high"] = "medium"
+    category: str = "Mind"
+    dueDate: str = "Today"
+    status: Literal["todo", "in-progress", "completed"] = "todo"
+    source: Literal["assistant", "manual"] = "manual"
+
+
+class UpdateJournalTaskRequest(BaseModel):
+    title: str | None = None
+    status: Literal["todo", "in-progress", "completed"] | None = None
+    priority: Literal["low", "medium", "high"] | None = None
+    category: str | None = None
+    dueDate: str | None = None
+
+
 ClientMessage = (
     SessionInitMessage
     | ActivityStartMessage
@@ -103,6 +145,12 @@ ClientMessage = (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    seeded_sections = seed_database_if_empty()
+    if seeded_sections:
+        logger.info("db.seed_startup sections=%s", seeded_sections)
+    else:
+        logger.info("db.seed_startup skipped=true")
+
     tool_names = [getattr(tool, "__name__", str(tool)) for tool in voice_assistant_agent.tools]
     logger.info(
         "runner.init model=%s tools=%s",
@@ -205,10 +253,75 @@ async def remove_care_activity(activity_id: str):
 
 @app.get("/api/journal")
 async def get_journal():
-    return {
-        "tasks": _load_payload("journal_tasks", []),
-        "entries": _load_payload("journal_entries", []),
-    }
+    return load_journal()
+
+
+@app.post("/api/journal/entries")
+async def create_journal_entry_route(request: CreateJournalEntryRequest):
+    try:
+        return create_journal_entry(
+            title=request.title,
+            content=request.content,
+            mood=request.mood,
+            tags=request.tags,
+            source=request.source,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/journal/cbt-notes")
+async def create_cbt_note_route(request: CreateCbtNoteRequest):
+    try:
+        return create_cbt_note(
+            situation=request.situation,
+            thought=request.thought,
+            feeling=request.feeling,
+            reframe=request.reframe,
+            action=request.action,
+            linked_entry_id=request.linkedEntryId,
+            source=request.source,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/journal/tasks")
+async def create_journal_task_route(request: CreateJournalTaskRequest):
+    try:
+        return create_journal_task(
+            title=request.title,
+            priority=request.priority,
+            category=request.category,
+            due_date=request.dueDate,
+            status=request.status,
+            source=request.source,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.patch("/api/journal/tasks/{task_id}")
+async def update_journal_task_route(task_id: str, request: UpdateJournalTaskRequest):
+    try:
+        return update_journal_task(
+            task_id,
+            title=request.title,
+            status=request.status,
+            priority=request.priority,
+            category=request.category,
+            due_date=request.dueDate,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.delete("/api/journal/tasks/{task_id}")
+async def delete_journal_task_route(task_id: str):
+    try:
+        return delete_journal_task(task_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @app.get("/api/progress/biomarkers")
@@ -376,6 +489,13 @@ def _extract_tool_payloads(event: object) -> list[dict[str, Any]]:
             "care_activity_confirmation_required",
             "care_activity_created",
             "care_recommendations",
+            "journal_confirmation_required",
+            "journal_entry_created",
+            "journal_cbt_note_created",
+            "journal_task_created",
+            "journal_task_updated",
+            "journal_task_deleted",
+            "journal_error",
         }:
             payloads.append(parsed)
     return payloads
@@ -623,8 +743,22 @@ async def live(websocket: WebSocket):
 
         async def process_messages() -> None:
             while True:
-                incoming = await websocket.receive()
+                try:
+                    incoming = await websocket.receive()
+                except RuntimeError as error:
+                    if "disconnect message has been received" in str(error):
+                        logger.info("ws.disconnect already_received=true")
+                        break
+                    raise
                 logger.info("ws.receive keys=%s", sorted(incoming.keys()))
+
+                if incoming.get("type") == "websocket.disconnect":
+                    logger.info(
+                        "ws.disconnect code=%s reason=%s",
+                        incoming.get("code"),
+                        incoming.get("reason"),
+                    )
+                    break
 
                 if incoming.get("bytes") is not None:
                     logger.info(
@@ -668,14 +802,17 @@ async def live(websocket: WebSocket):
         ]
         done, pending = await asyncio.wait(
             tasks,
-            return_when=asyncio.FIRST_EXCEPTION,
+            return_when=asyncio.FIRST_COMPLETED,
         )
 
         for task in done:
-            task.result()
+            error = task.exception()
+            if error is not None:
+                raise error
 
         for task in pending:
             task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
 
     except WebSocketDisconnect:
         logger.info("ws.disconnect")

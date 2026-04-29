@@ -101,6 +101,30 @@ export interface CareActivityCreatedPayload {
   activity: CareActivity;
 }
 
+export type JournalItemType = 'reflection' | 'cbt_note' | 'task';
+
+export interface JournalConfirmationPayload {
+  type: 'journal_confirmation_required';
+  status: 'confirmation_required';
+  itemType: JournalItemType;
+  message?: string;
+  preview: Record<string, unknown>;
+}
+
+export interface JournalCreatedPayload {
+  type:
+    | 'journal_entry_created'
+    | 'journal_cbt_note_created'
+    | 'journal_task_created'
+    | 'journal_task_updated'
+    | 'journal_task_deleted';
+  status: 'success';
+  message?: string;
+  entry?: JournalEntry;
+  cbtNote?: CbtNote;
+  task?: Task | { id: string; status: 'deleted' };
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -172,20 +196,42 @@ export interface Task {
   priority: TaskPriority;
   category: string;
   dueDate: string;
+  createdAt?: string;
+  updatedAt?: string;
+  source?: 'assistant' | 'manual';
 }
 
 export interface JournalEntry {
   id: string;
+  createdAt?: string;
   date: string;
+  time?: string;
   title: string;
   excerpt: string;
+  content?: string;
   mood: string;
   tags: string[];
+  source?: 'assistant' | 'manual';
+}
+
+export interface CbtNote {
+  id: string;
+  createdAt: string;
+  date: string;
+  time: string;
+  situation: string;
+  thought: string;
+  feeling: string;
+  reframe: string;
+  action: string;
+  source: 'assistant' | 'manual';
+  linkedEntryId?: string;
 }
 
 export interface JournalData {
   tasks: Task[];
   entries: JournalEntry[];
+  cbtNotes: CbtNote[];
 }
 
 export interface Biomarker {

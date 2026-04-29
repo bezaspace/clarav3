@@ -13,6 +13,7 @@ else:
 
 from voice_assistant.db import get_section
 from voice_assistant.care import build_care_tool_response
+from voice_assistant.journal import build_journal_tool_response
 
 
 LOCAL_TIMEZONE = ZoneInfo("Asia/Kolkata")
@@ -51,6 +52,57 @@ def manage_care_services(
         source_item_id=source_item_id,
         confirmed=confirmed,
         note=note,
+    )
+
+
+def manage_journal(
+    action: str = "propose",
+    item_type: str | None = None,
+    confirmed: bool = False,
+    title: str | None = None,
+    content: str | None = None,
+    mood: str | None = None,
+    tags: list[str] | None = None,
+    situation: str | None = None,
+    thought: str | None = None,
+    feeling: str | None = None,
+    reframe: str | None = None,
+    task_title: str | None = None,
+    priority: str | None = None,
+    category: str | None = None,
+    due_date: str | None = None,
+    task_id: str | None = None,
+    status: str | None = None,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
+    """Proposes, creates, updates, deletes, or lists Journal workspace items.
+
+    Use this tool when the user asks to save a reflection, create a journal
+    entry, capture a thought, save a CBT note, reframe a thought, or manage a
+    mental-load task. Always call with confirmed=false first unless the user has
+    already explicitly confirmed the specific write. Only writes are performed
+    when confirmed=true.
+    """
+
+    del tool_context
+    return build_journal_tool_response(
+        action=action,
+        item_type=item_type,
+        confirmed=confirmed,
+        title=title,
+        content=content,
+        mood=mood,
+        tags=tags,
+        situation=situation,
+        thought=thought,
+        feeling=feeling,
+        reframe=reframe,
+        task_title=task_title,
+        priority=priority,
+        category=category,
+        due_date=due_date,
+        task_id=task_id,
+        status=status,
     )
 
 

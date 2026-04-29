@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import {
+  BookOpen,
   Brain,
   CheckCircle2,
   Circle,
@@ -28,6 +29,8 @@ import type {
   CareRecommendation,
   CareRecommendationsPayload,
   CurrentActivityPayload,
+  JournalConfirmationPayload,
+  JournalCreatedPayload,
   ScheduleSnapshotPayload,
 } from '@/src/lib/types'
 import { cn } from '@/src/lib/utils'
@@ -229,6 +232,67 @@ function CareOptionVisual({ item }: { item: CareRecommendation }) {
   )
 }
 
+function getJournalTypeLabel(itemType: JournalConfirmationPayload['itemType']) {
+  switch (itemType) {
+    case 'cbt_note':
+      return 'CBT'
+    case 'task':
+      return 'Task'
+    default:
+      return 'Reflection'
+  }
+}
+
+function getJournalPreviewTitle(payload: JournalConfirmationPayload) {
+  const preview = payload.preview
+  if (payload.itemType === 'cbt_note') {
+    return String(preview.situation || 'CBT note')
+  }
+  return String(preview.title || 'Reflection')
+}
+
+function getJournalPreviewBody(payload: JournalConfirmationPayload) {
+  const preview = payload.preview
+  const value =
+    preview.excerpt ||
+    preview.content ||
+    preview.thought ||
+    preview.reframe ||
+    preview.action ||
+    preview.dueDate ||
+    ''
+  return String(value)
+}
+
+function JournalConfirmationVisual({ payload }: { payload: JournalConfirmationPayload }) {
+  const label = getJournalTypeLabel(payload.itemType)
+  const body = getJournalPreviewBody(payload)
+
+  return (
+    <div className="min-w-0 rounded-lg border border-emerald-300/20 bg-neutral-950/85 p-4 shadow-2xl shadow-black/30 backdrop-blur-md">
+      <div className="flex items-start justify-between gap-3">
+        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+          {payload.itemType === 'cbt_note' ? <Brain size={16} /> : <BookOpen size={16} />}
+          <span>{label}</span>
+        </div>
+        <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-1 text-[10px] font-bold uppercase text-amber-100">
+          confirm
+        </span>
+      </div>
+
+      <p className="mt-4 truncate text-sm font-semibold text-stone-100">
+        {getJournalPreviewTitle(payload)}
+      </p>
+      {body ? (
+        <p className="mt-1 line-clamp-2 text-xs leading-5 text-stone-400">{body}</p>
+      ) : null}
+      <p className="mt-3 border-t border-white/10 pt-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+        confirmation required
+      </p>
+    </div>
+  )
+}
+
 function careActivityToRecommendation(activity: CareActivity): CareRecommendation {
   return {
     id: activity.sourceItemId || activity.id,
@@ -305,12 +369,37 @@ function isCareActivityCreatedPayload(value: unknown): value is CareActivityCrea
   return payload.type === 'care_activity_created' && typeof payload.activity === 'object'
 }
 
+function isJournalConfirmationPayload(value: unknown): value is JournalConfirmationPayload {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const payload = value as Record<string, unknown>
+  return payload.type === 'journal_confirmation_required' && typeof payload.preview === 'object'
+}
+
+function isJournalCreatedPayload(value: unknown): value is JournalCreatedPayload {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const payload = value as Record<string, unknown>
+  return (
+    payload.type === 'journal_entry_created' ||
+    payload.type === 'journal_cbt_note_created' ||
+    payload.type === 'journal_task_created' ||
+    payload.type === 'journal_task_updated' ||
+    payload.type === 'journal_task_deleted'
+  )
+}
+
 export default function VoiceAssistant() {
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle')
   const [visualState, setVisualState] = useState<VisualState>('idle')
   const [warning, setWarning] = useState('')
   const [activityVisuals, setActivityVisuals] = useState<ActivityCard[]>([])
   const [careVisuals, setCareVisuals] = useState<CareRecommendation[]>([])
+  const [journalVisual, setJournalVisual] = useState<JournalConfirmationPayload | null>(null)
   const [careToast, setCareToast] = useState('')
 
   const socketRef = useRef<WebSocket | null>(null)
@@ -398,6 +487,7 @@ export default function VoiceAssistant() {
       }).slice(0, 6)
     })
     setCareVisuals([])
+    setJournalVisual(null)
   }
 
   const showPrimaryActivityVisual = (...items: unknown[]) => {
@@ -408,6 +498,7 @@ export default function VoiceAssistant() {
 
     setActivityVisuals([primaryItem])
     setCareVisuals([])
+    setJournalVisual(null)
   }
 
   const showCareVisuals = (items: CareRecommendation[]) => {
@@ -418,6 +509,7 @@ export default function VoiceAssistant() {
 
     setCareVisuals(normalizedItems.slice(0, 6))
     setActivityVisuals([])
+    setJournalVisual(null)
   }
 
   const showCareToast = (message: string) => {
@@ -429,6 +521,24 @@ export default function VoiceAssistant() {
       setCareToast('')
       careToastTimeoutRef.current = null
     }, 3600)
+  }
+
+  const showJournalConfirmation = (payload: JournalConfirmationPayload) => {
+    setJournalVisual(payload)
+    setActivityVisuals([])
+    setCareVisuals([])
+  }
+
+  const showJournalToast = (payload: JournalCreatedPayload) => {
+    const fallbackMessages: Record<JournalCreatedPayload['type'], string> = {
+      journal_entry_created: 'Reflection saved.',
+      journal_cbt_note_created: 'CBT note saved.',
+      journal_task_created: 'Task added.',
+      journal_task_updated: 'Task updated.',
+      journal_task_deleted: 'Task deleted.',
+    }
+    showCareToast(payload.message || fallbackMessages[payload.type])
+    setJournalVisual(null)
   }
 
   const markPttActive = (active: boolean) => {
@@ -615,6 +725,21 @@ export default function VoiceAssistant() {
             return
           }
 
+          if (isJournalConfirmationPayload(parsed)) {
+            showJournalConfirmation(parsed)
+            return
+          }
+
+          if (isJournalCreatedPayload(parsed)) {
+            showJournalToast(parsed)
+            return
+          }
+
+          if (parsed.type === 'journal_error') {
+            setWarning(parsed.message || 'Journal action failed.')
+            return
+          }
+
           if (parsed.type === 'state') {
             if (parsed.state === 'thinking' && !isPttActiveRef.current) {
               setVisualState('awaiting')
@@ -690,6 +815,7 @@ export default function VoiceAssistant() {
     setVisualState('idle')
     setActivityVisuals([])
     setCareVisuals([])
+    setJournalVisual(null)
     setCareToast('')
     debugLog('disconnect.done')
   }
@@ -850,6 +976,12 @@ export default function VoiceAssistant() {
               <CareOptionVisual item={item} />
             </div>
           ))}
+        </div>
+      ) : null}
+
+      {journalVisual ? (
+        <div className="absolute inset-x-0 top-16 mx-auto w-full max-w-sm px-2">
+          <JournalConfirmationVisual payload={journalVisual} />
         </div>
       ) : null}
 
