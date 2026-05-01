@@ -22,7 +22,7 @@ data class VoiceUiState(
     val connectionState: ConnectionState = ConnectionState.Idle,
     val visualState: AssistantVisualState = AssistantVisualState.Idle,
     val warning: String = "",
-    val serverUrl: String = "http://127.0.0.1:8000",
+    val serverUrl: String = VoiceConfig.DEFAULT_HTTP_URL,
     val sessionId: String = "",
     val statusText: String = "Tap and hold the mic to begin",
     val isRecording: Boolean = false,
@@ -38,4 +38,3 @@ data class BottomSheetChip(
     val tone: Color,
     val emoji: String,
 )
-

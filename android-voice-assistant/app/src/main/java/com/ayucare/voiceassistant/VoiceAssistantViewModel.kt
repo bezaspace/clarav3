@@ -15,6 +15,7 @@ import com.ayucare.voiceassistant.data.VoiceConfig
 import com.ayucare.voiceassistant.data.VoiceUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +48,7 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
     private var recorder: AudioRecord? = null
     private var captureJob = viewModelScope.launch { }
     private var isCapturing = false
+    private var recordingStartedAtMs = 0L
 
     private var playbackTrack: AudioTrack? = null
     private var playbackRate = 24000
@@ -148,7 +150,9 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                 connectionState = ConnectionState.Idle,
                 visualState = AssistantVisualState.Idle,
                 isRecording = false,
-                warning = ""
+                sessionId = "",
+                warning = "",
+                statusText = "Session ended"
             )
         }
         releasePlayback()
@@ -184,6 +188,7 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                 )
             }
             sendEvent(mapOf("type" to "ptt_start"))
+            recordingStartedAtMs = System.currentTimeMillis()
             startCapture()
         }
     }
@@ -193,15 +198,22 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
             return
         }
 
-        sendEvent(mapOf("type" to "ptt_end"))
-        stopCapture()
-        suppressAssistantPlayback = false
         _uiState.update {
             it.copy(
-                isRecording = false,
                 visualState = AssistantVisualState.Awaiting,
                 statusText = "Processing"
             )
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val elapsed = System.currentTimeMillis() - recordingStartedAtMs
+            if (elapsed in 0 until MIN_CAPTURE_MS) {
+                delay(MIN_CAPTURE_MS - elapsed)
+            }
+
+            stopCapture()
+            suppressAssistantPlayback = false
+            sendEvent(mapOf("type" to "ptt_end"))
         }
     }
 
@@ -496,5 +508,9 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
             copied.add(clamped)
             current.copy(waveform = copied)
         }
+    }
+
+    companion object {
+        private const val MIN_CAPTURE_MS = 900L
     }
 }
