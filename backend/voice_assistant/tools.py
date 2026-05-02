@@ -24,6 +24,7 @@ SCHEDULE_SUMMARY_STATE_KEY = "app:schedule_summary"
 LAST_ACTIVITY_CARD_STATE_KEY = "app:last_activity_card"
 LAST_CARE_RECOMMENDATIONS_STATE_KEY = "app:last_care_recommendations"
 LAST_CARE_SELECTION_STATE_KEY = "app:last_care_selection"
+LAST_JOURNAL_PROPOSAL_STATE_KEY = "app:last_journal_proposal"
 logger = logging.getLogger("voice_assistant.tools")
 HEALTH_SNAPSHOT_FOCUS_ALIASES = {
     "adherence": "medication",
@@ -127,6 +128,8 @@ def manage_journal(
     thought: str | None = None,
     feeling: str | None = None,
     reframe: str | None = None,
+    next_action: str | None = None,
+    small_action: str | None = None,
     task_title: str | None = None,
     priority: str | None = None,
     category: str | None = None,
@@ -141,29 +144,37 @@ def manage_journal(
     entry, capture a thought, save a CBT note, reframe a thought, or manage a
     mental-load task. Always call with confirmed=false first unless the user has
     already explicitly confirmed the specific write. Only writes are performed
-    when confirmed=true.
+    when confirmed=true. The assistant should choose item_type from context
+    instead of asking the user to choose between reflection, CBT note, and task.
     """
 
-    del tool_context
-    return build_journal_tool_response(
-        action=action,
-        item_type=item_type,
-        confirmed=confirmed,
-        title=title,
-        content=content,
-        mood=mood,
-        tags=tags,
-        situation=situation,
-        thought=thought,
-        feeling=feeling,
-        reframe=reframe,
-        task_title=task_title,
-        priority=priority,
-        category=category,
-        due_date=due_date,
-        task_id=task_id,
-        status=status,
-    )
+    payload = {
+        "action": action,
+        "item_type": item_type,
+        "confirmed": confirmed,
+        "title": title,
+        "content": content,
+        "mood": mood,
+        "tags": tags,
+        "situation": situation,
+        "thought": thought,
+        "feeling": feeling,
+        "reframe": reframe,
+        "next_action": next_action,
+        "small_action": small_action,
+        "task_title": task_title,
+        "priority": priority,
+        "category": category,
+        "due_date": due_date,
+        "task_id": task_id,
+        "status": status,
+    }
+    if confirmed:
+        payload = _merge_journal_confirmation(tool_context, payload)
+
+    response = build_journal_tool_response(**payload)
+    _remember_journal_proposal(tool_context, payload, response)
+    return response
 
 
 def get_health_snapshot(
@@ -515,6 +526,66 @@ def _remember_care_response(
             "kind": activity.get("kind", ""),
             "title": activity.get("title", ""),
         }
+
+
+def _remember_journal_proposal(
+    tool_context: ToolContext | None,
+    payload: dict[str, Any],
+    response: dict[str, Any],
+) -> None:
+    if tool_context is None:
+        return
+    if response.get("type") != "journal_confirmation_required":
+        if response.get("status") == "success" and str(response.get("type", "")).startswith("journal_"):
+            _clear_journal_proposal(tool_context)
+        return
+    proposed = dict(payload)
+    proposed["confirmed"] = True
+    if str(proposed.get("action") or "").strip().lower() == "propose":
+        proposed["action"] = "create"
+    tool_context.state[LAST_JOURNAL_PROPOSAL_STATE_KEY] = proposed
+
+
+def _merge_journal_confirmation(
+    tool_context: ToolContext | None,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    if tool_context is None:
+        return payload
+    remembered = tool_context.state.get(LAST_JOURNAL_PROPOSAL_STATE_KEY)
+    if not isinstance(remembered, dict):
+        return payload
+
+    merged = dict(remembered)
+    for key, value in payload.items():
+        if key == "confirmed":
+            merged[key] = value
+        elif key == "action" and str(value or "").strip().lower() != "propose":
+            merged[key] = value
+        elif _has_journal_value(value):
+            merged[key] = value
+    merged["confirmed"] = True
+    return merged
+
+
+def _clear_journal_proposal(tool_context: ToolContext) -> None:
+    try:
+        del tool_context.state[LAST_JOURNAL_PROPOSAL_STATE_KEY]
+    except (KeyError, AttributeError, TypeError):
+        tool_context.state[LAST_JOURNAL_PROPOSAL_STATE_KEY] = None
+
+
+def _has_journal_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"yes", "yeah", "yep", "confirm", "confirmed", "save it", "please save it"}:
+            return False
+        return bool(normalized)
+    if isinstance(value, list):
+        return bool(value)
+    return True
 
 
 def _resolve_care_selection(

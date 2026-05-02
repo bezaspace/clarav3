@@ -522,6 +522,7 @@ def _extract_tool_payloads(event: object) -> list[dict[str, Any]]:
             "care_order_review",
             "care_recommendations",
             "journal_confirmation_required",
+            "journal_snapshot",
             "journal_entry_created",
             "journal_cbt_note_created",
             "journal_task_created",

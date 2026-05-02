@@ -196,6 +196,8 @@ def build_journal_tool_response(
     thought: str | None = None,
     feeling: str | None = None,
     reframe: str | None = None,
+    next_action: str | None = None,
+    small_action: str | None = None,
     task_title: str | None = None,
     priority: str | None = None,
     category: str | None = None,
@@ -204,10 +206,6 @@ def build_journal_tool_response(
     status: str | None = None,
 ) -> dict[str, Any]:
     normalized_action = str(action or "propose").strip().lower()
-    try:
-        normalized_item_type = _normalize_item_type(item_type)
-    except ValueError as error:
-        return _journal_error(str(error))
 
     if normalized_action == "list":
         return {
@@ -216,6 +214,11 @@ def build_journal_tool_response(
             "message": "Loaded journal items.",
             "journal": load_journal(),
         }
+
+    try:
+        normalized_item_type = _normalize_item_type(item_type)
+    except ValueError as error:
+        return _journal_error(str(error))
 
     if normalized_action == "propose" and confirmed:
         normalized_action = "create"
@@ -233,6 +236,8 @@ def build_journal_tool_response(
                 thought=thought,
                 feeling=feeling,
                 reframe=reframe,
+                next_action=next_action,
+                small_action=small_action,
                 task_title=task_title,
                 priority=priority,
                 category=category,
@@ -254,6 +259,8 @@ def build_journal_tool_response(
                 thought=thought,
                 feeling=feeling,
                 reframe=reframe,
+                next_action=next_action,
+                small_action=small_action,
                 task_title=task_title,
                 priority=priority,
                 category=category,
@@ -275,6 +282,8 @@ def build_journal_tool_response(
                 thought=thought,
                 feeling=feeling,
                 reframe=reframe,
+                next_action=next_action,
+                small_action=small_action,
                 task_title=task_title,
                 priority=priority,
                 category=category,
@@ -333,7 +342,7 @@ def _create_tool_item(item_type: str, **payload: Any) -> dict[str, Any]:
             thought=payload.get("thought") or "",
             feeling=payload.get("feeling") or "",
             reframe=payload.get("reframe") or "",
-            action=payload.get("action") or payload.get("content") or "",
+            action=payload.get("next_action") or payload.get("small_action") or payload.get("content") or "",
             source="assistant",
         )
         return {
@@ -389,7 +398,11 @@ def _coerce_reflection_to_cbt_payload(payload: dict[str, Any]) -> dict[str, Any]
         "thought": thought,
         "feeling": _clean_text(payload.get("feeling")) or "Worry",
         "reframe": reframe,
-        "action": _clean_text(payload.get("action")) or "Return to this reframe when the worry comes up.",
+        "next_action": (
+            _clean_text(payload.get("next_action"))
+            or _clean_text(payload.get("small_action"))
+            or "Return to this reframe when the worry comes up."
+        ),
     }
 
 
@@ -449,7 +462,11 @@ def _build_preview(item_type: str, **payload: Any) -> dict[str, Any]:
             "thought": _clean_text(payload.get("thought")),
             "feeling": _clean_text(payload.get("feeling")),
             "reframe": _clean_text(payload.get("reframe")),
-            "action": _clean_text(payload.get("action")) or _clean_text(payload.get("content")),
+            "action": (
+                _clean_text(payload.get("next_action"))
+                or _clean_text(payload.get("small_action"))
+                or _clean_text(payload.get("content"))
+            ),
         }
     return {
         "id": _clean_text(payload.get("task_id")),

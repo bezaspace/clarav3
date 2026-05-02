@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import com.ayucare.voiceassistant.data.AppUiState
 import com.ayucare.voiceassistant.data.ActivityCard
 import com.ayucare.voiceassistant.data.AssistantCarePanel
+import com.ayucare.voiceassistant.data.AssistantJournalPanel
 import com.ayucare.voiceassistant.data.AssistantProgressPanel
 import com.ayucare.voiceassistant.data.AssistantVisualState
 import com.ayucare.voiceassistant.data.CareActivity
@@ -19,7 +20,11 @@ import com.ayucare.voiceassistant.data.CareRecommendationCard
 import com.ayucare.voiceassistant.data.CareSlotOption
 import com.ayucare.voiceassistant.data.ClaraApiClient
 import com.ayucare.voiceassistant.data.ConnectionState
+import com.ayucare.voiceassistant.data.CbtNote
 import com.ayucare.voiceassistant.data.DashboardScheduleItem
+import com.ayucare.voiceassistant.data.JournalData
+import com.ayucare.voiceassistant.data.JournalEntry
+import com.ayucare.voiceassistant.data.JournalPreview
 import com.ayucare.voiceassistant.data.JournalTask
 import com.ayucare.voiceassistant.data.VoiceConfig
 import com.ayucare.voiceassistant.data.VoiceUiState
@@ -209,6 +214,7 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                             activityCards = emptyList(),
                             carePanel = null,
                             progressPanel = null,
+                            journalPanel = null,
                         )
                     }
                 }
@@ -243,6 +249,7 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                 activityCards = emptyList(),
                 carePanel = null,
                 progressPanel = null,
+                journalPanel = null,
             )
         }
         releasePlayback()
@@ -367,6 +374,105 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                 showProgressPanel(payload.parseAssistantProgressPanel())
             }
 
+            "journal_confirmation_required" -> {
+                val itemType = payload.optString("itemType")
+                showJournalPanel(
+                    AssistantJournalPanel(
+                        mode = "confirmation",
+                        title = journalPanelTitle(itemType, "confirmation"),
+                        message = payload.optString("message"),
+                        itemType = itemType,
+                        preview = payload.optJSONObject("preview")?.parseJournalPreview(itemType),
+                    )
+                )
+            }
+
+            "journal_snapshot" -> {
+                val journal = payload.optJSONObject("journal")?.parseJournalPayload() ?: JournalData()
+                _appState.update { it.copy(journal = journal) }
+                showJournalPanel(
+                    AssistantJournalPanel(
+                        mode = "snapshot",
+                        title = "Journal snapshot",
+                        message = payload.optString("message"),
+                        journal = journal,
+                    )
+                )
+            }
+
+            "journal_entry_created" -> {
+                val entry = payload.optJSONObject("entry")?.parseJournalEntryPayload()
+                if (entry != null) {
+                    _appState.update { state ->
+                        state.copy(journal = state.journal.copy(entries = listOf(entry) + state.journal.entries.filter { it.id != entry.id }))
+                    }
+                    showJournalPanel(
+                        AssistantJournalPanel(
+                            mode = "saved",
+                            title = "Reflection saved",
+                            message = payload.optString("message"),
+                            itemType = "reflection",
+                            entry = entry,
+                        )
+                    )
+                }
+            }
+
+            "journal_cbt_note_created" -> {
+                val note = payload.optJSONObject("cbtNote")?.parseCbtNotePayload()
+                if (note != null) {
+                    _appState.update { state ->
+                        state.copy(journal = state.journal.copy(cbtNotes = listOf(note) + state.journal.cbtNotes.filter { it.id != note.id }))
+                    }
+                    showJournalPanel(
+                        AssistantJournalPanel(
+                            mode = "saved",
+                            title = "Reframe saved",
+                            message = payload.optString("message"),
+                            itemType = "cbt_note",
+                            cbtNote = note,
+                        )
+                    )
+                }
+            }
+
+            "journal_task_created", "journal_task_updated" -> {
+                val task = payload.optJSONObject("task")?.parseJournalTaskPayload()
+                if (task != null) {
+                    _appState.update { state ->
+                        state.copy(journal = state.journal.copy(tasks = listOf(task) + state.journal.tasks.filter { it.id != task.id }))
+                    }
+                    showJournalPanel(
+                        AssistantJournalPanel(
+                            mode = "saved",
+                            title = if (payload.optString("type") == "journal_task_created") "Task added" else "Task updated",
+                            message = payload.optString("message"),
+                            itemType = "task",
+                            task = task,
+                        )
+                    )
+                }
+            }
+
+            "journal_task_deleted" -> {
+                val task = payload.optJSONObject("task")?.parseJournalTaskPayload()
+                val taskId = task?.id.orEmpty()
+                if (taskId.isNotBlank()) {
+                    _appState.update { state ->
+                        state.copy(journal = state.journal.copy(tasks = state.journal.tasks.filter { it.id != taskId }))
+                    }
+                }
+                showJournalPanel(
+                    AssistantJournalPanel(
+                        mode = "saved",
+                        title = "Task deleted",
+                        message = payload.optString("message"),
+                        itemType = "task",
+                        task = task,
+                    )
+                )
+            }
+
             "activity_completion_logged" -> {
                 val card = payload.optJSONObject("activityCard")?.parseActivityCard()
                 if (card != null) {
@@ -443,6 +549,10 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
             }
 
             "care_activity_error" -> {
+                _uiState.update { it.copy(warning = payload.optString("message")) }
+            }
+
+            "journal_error" -> {
                 _uiState.update { it.copy(warning = payload.optString("message")) }
             }
 
@@ -529,7 +639,7 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
 
     private fun showActivityCards(cards: List<ActivityCard>) {
         if (cards.isEmpty()) return
-        _uiState.update { it.copy(activityCards = cards.take(6), carePanel = null, progressPanel = null) }
+        _uiState.update { it.copy(activityCards = cards.take(6), carePanel = null, progressPanel = null, journalPanel = null) }
     }
 
     private fun showCarePanel(panel: AssistantCarePanel) {
@@ -538,6 +648,7 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                 carePanel = panel,
                 activityCards = emptyList(),
                 progressPanel = null,
+                journalPanel = null,
             )
         }
     }
@@ -546,6 +657,18 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
         _uiState.update {
             it.copy(
                 progressPanel = panel,
+                carePanel = null,
+                activityCards = emptyList(),
+                journalPanel = null,
+            )
+        }
+    }
+
+    private fun showJournalPanel(panel: AssistantJournalPanel) {
+        _uiState.update {
+            it.copy(
+                journalPanel = panel,
+                progressPanel = null,
                 carePanel = null,
                 activityCards = emptyList(),
             )
@@ -812,6 +935,84 @@ private fun JSONObject.parseCareActivityPayload(): CareActivity =
         quantity = optInt("quantity", 1),
     )
 
+private fun JSONObject.parseJournalPayload(): JournalData =
+    JournalData(
+        tasks = optJSONArray("tasks").mapObjects { it.parseJournalTaskPayload() },
+        entries = optJSONArray("entries").mapObjects { it.parseJournalEntryPayload() },
+        cbtNotes = optJSONArray("cbtNotes").mapObjects { it.parseCbtNotePayload() },
+    )
+
+private fun JSONObject.parseJournalTaskPayload(): JournalTask =
+    JournalTask(
+        id = optString("id"),
+        title = optString("title"),
+        status = optString("status"),
+        priority = optString("priority"),
+        category = optString("category"),
+        dueDate = optString("dueDate"),
+        completionNote = optString("completionNote"),
+        completedAt = optString("completedAt"),
+    )
+
+private fun JSONObject.parseJournalEntryPayload(): JournalEntry =
+    JournalEntry(
+        id = optString("id"),
+        date = optString("date"),
+        time = optString("time"),
+        title = optString("title"),
+        excerpt = optString("excerpt"),
+        content = optString("content"),
+        mood = optString("mood"),
+        tags = optJSONArray("tags").mapStrings(),
+        source = optString("source"),
+    )
+
+private fun JSONObject.parseCbtNotePayload(): CbtNote =
+    CbtNote(
+        id = optString("id"),
+        date = optString("date"),
+        time = optString("time"),
+        situation = optString("situation"),
+        thought = optString("thought"),
+        feeling = optString("feeling"),
+        reframe = optString("reframe"),
+        action = optString("action"),
+        source = optString("source"),
+    )
+
+private fun JSONObject.parseJournalPreview(itemType: String): JournalPreview {
+    val title = when (itemType) {
+        "cbt_note" -> optString("situation").ifBlank { "Thought reframe" }
+        "task" -> optString("title").ifBlank { "Mental-load task" }
+        else -> optString("title").ifBlank { "Reflection" }
+    }
+    val body = listOf(
+        optString("excerpt"),
+        optString("content"),
+        optString("thought"),
+        optString("reframe"),
+        optString("action"),
+        optString("dueDate"),
+    ).firstOrNull { it.isNotBlank() }.orEmpty()
+    return JournalPreview(
+        itemType = itemType,
+        title = title,
+        body = body,
+        mood = optString("mood"),
+        tags = optJSONArray("tags").mapStrings(),
+        status = optString("status"),
+        priority = optString("priority"),
+        category = optString("category"),
+        dueDate = optString("dueDate"),
+        thought = optString("thought"),
+        feeling = optString("feeling"),
+        reframe = optString("reframe"),
+        nextAction = optString("action").ifBlank {
+            optString("nextAction").ifBlank { optString("smallAction") }
+        },
+    )
+}
+
 private fun carePanelTitle(kind: String, count: Int): String {
     val label = when (kind) {
         "doctor" -> "doctor"
@@ -821,6 +1022,15 @@ private fun carePanelTitle(kind: String, count: Int): String {
         else -> "care"
     }
     return "$count ${label} option${if (count == 1) "" else "s"}"
+}
+
+private fun journalPanelTitle(itemType: String, mode: String): String {
+    val label = when (itemType) {
+        "cbt_note" -> "Reframe"
+        "task" -> "Mental-load task"
+        else -> "Reflection"
+    }
+    return if (mode == "confirmation") "$label needs approval" else label
 }
 
 private fun DashboardScheduleItem.withCompletion(card: ActivityCard): DashboardScheduleItem =
@@ -844,5 +1054,12 @@ private fun <T> JSONArray?.mapObjects(transform: (JSONObject) -> T): List<T> {
     if (this == null) return emptyList()
     return (0 until length()).mapNotNull { index ->
         optJSONObject(index)?.let(transform)
+    }
+}
+
+private fun JSONArray?.mapStrings(): List<String> {
+    if (this == null) return emptyList()
+    return (0 until length()).mapNotNull { index ->
+        optString(index).takeIf { it.isNotBlank() }
     }
 }

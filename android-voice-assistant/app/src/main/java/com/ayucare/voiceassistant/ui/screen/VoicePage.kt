@@ -91,6 +91,7 @@ import com.ayucare.voiceassistant.VoiceAssistantViewModel
 import com.ayucare.voiceassistant.data.AppUiState
 import com.ayucare.voiceassistant.data.AssistantVisualState
 import com.ayucare.voiceassistant.data.AssistantCarePanel
+import com.ayucare.voiceassistant.data.AssistantJournalPanel
 import com.ayucare.voiceassistant.data.AssistantProgressPanel
 import com.ayucare.voiceassistant.data.Biomarker
 import com.ayucare.voiceassistant.data.CareActivity
@@ -320,6 +321,7 @@ fun VoicePage(viewModel: VoiceAssistantViewModel) {
                 activityCards = state.activityCards,
                 carePanel = state.carePanel,
                 progressPanel = state.progressPanel,
+                journalPanel = state.journalPanel,
                 onMicClick = {
                     val granted = ContextCompat.checkSelfPermission(
                         context,
@@ -3708,7 +3710,6 @@ private fun JournalPage(
     }
     val reflections = remember(appState.journal.entries) {
         appState.journal.entries.mapIndexed { index, entry -> entry.toMockReflection(index) }
-            .ifEmpty { mockReflections() }
     }
     val reframes = remember(appState.journal.cbtNotes) {
         appState.journal.cbtNotes.map { note ->
@@ -3722,13 +3723,12 @@ private fun JournalPage(
                 reframe = note.reframe,
                 action = note.action,
             )
-        }.ifEmpty { mockReframes() }
+        }
     }
     val tasks = remember(appState.journal.tasks) {
         appState.journal.tasks.map { it.toMockMentalLoadTask() }
-            .ifEmpty { mockMentalLoadTasks() }
     }
-    val events = remember(appState.journal) { appState.journal.toClaraJournalEvents().ifEmpty { mockClaraJournalEvents() } }
+    val events = remember(appState.journal) { appState.journal.toClaraJournalEvents() }
     var selectedTab by remember { mutableStateOf("today") }
 
     Box(
@@ -4035,6 +4035,18 @@ private fun ClaraActivityTrail(events: List<ClaraJournalEvent>) {
     WellnessPanel {
         CardTitleRow("Recent activity", "Journal")
         Spacer(Modifier.height(12.dp))
+        if (events.isEmpty()) {
+            Text(
+                text = "Approved Journal activity will appear here.",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.Medium,
+                ),
+                color = Color(0xFF817865),
+            )
+            return@WellnessPanel
+        }
         events.forEachIndexed { index, event ->
             Row(verticalAlignment = Alignment.Top) {
                 Box(
@@ -4532,6 +4544,7 @@ private fun AssistantPage(
     activityCards: List<ActivityCard>,
     carePanel: AssistantCarePanel?,
     progressPanel: AssistantProgressPanel?,
+    journalPanel: AssistantJournalPanel?,
     onMicClick: () -> Unit,
     onEndSession: () -> Unit,
     modifier: Modifier = Modifier,
@@ -4602,7 +4615,9 @@ private fun AssistantPage(
                 }
             }
 
-            if (progressPanel != null) {
+            if (journalPanel != null) {
+                AssistantJournalPanelView(panel = journalPanel)
+            } else if (progressPanel != null) {
                 AssistantProgressPanelView(panel = progressPanel)
             } else if (carePanel != null) {
                 AssistantCarePanelView(panel = carePanel)
@@ -4674,6 +4689,231 @@ private fun AssistantPage(
             )
         }
     }
+}
+
+@Composable
+private fun AssistantJournalPanelView(panel: AssistantJournalPanel) {
+    val accent = journalAccent(panel.itemType)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.92f)),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, accent.copy(alpha = 0.24f), RoundedCornerShape(22.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(accent.copy(alpha = 0.22f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = journalIcon(panel.itemType),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = WellnessDark,
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = panel.title.ifBlank { "Journal" },
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        color = WellnessDark,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = panel.message.ifBlank { journalPanelSubtitle(panel) },
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        color = Color(0xFF746C5E),
+                        maxLines = 2,
+                    )
+                }
+                JournalStatusBadge(
+                    text = if (panel.mode == "confirmation") "Approve" else "Saved",
+                    color = accent,
+                )
+            }
+
+            when (panel.mode) {
+                "snapshot" -> AssistantJournalSnapshot(panel)
+                "confirmation" -> panel.preview?.let { AssistantJournalPreview(it, accent) }
+                else -> AssistantJournalSaved(panel, accent)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssistantJournalPreview(preview: com.ayucare.voiceassistant.data.JournalPreview, accent: Color) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(accent.copy(alpha = 0.12f))
+            .padding(11.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Text(
+            text = preview.title.ifBlank { "Journal item" },
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold),
+            color = WellnessDark,
+            maxLines = 2,
+        )
+        if (preview.body.isNotBlank()) {
+            Text(
+                text = preview.body,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium),
+                color = Color(0xFF746C5E),
+                maxLines = 3,
+            )
+        }
+        JournalPreviewChips(preview = preview, accent = accent)
+    }
+}
+
+@Composable
+private fun JournalPreviewChips(preview: com.ayucare.voiceassistant.data.JournalPreview, accent: Color) {
+    val chips = listOf(
+        preview.mood,
+        preview.priority.replaceFirstChar { it.uppercase() },
+        preview.category,
+        preview.dueDate,
+    ).filter { it.isNotBlank() } + preview.tags.take(2)
+    if (chips.isEmpty()) return
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        chips.take(3).forEach { chip ->
+            JournalStatusBadge(text = chip, color = accent)
+        }
+    }
+}
+
+@Composable
+private fun AssistantJournalSnapshot(panel: AssistantJournalPanel) {
+    val journal = panel.journal
+    val latestEntry = journal.entries.firstOrNull()
+    val latestReframe = journal.cbtNotes.firstOrNull()
+    val openTasks = journal.tasks.count { it.status != "completed" }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AssistantProgressMiniMetric(
+            label = "Mood",
+            value = latestEntry?.mood?.takeIf { it.isNotBlank() } ?: "--",
+            color = WellnessPink,
+            modifier = Modifier.weight(1f),
+        )
+        AssistantProgressMiniMetric(
+            label = "Open",
+            value = openTasks.toString(),
+            color = WellnessMustard,
+            modifier = Modifier.weight(1f),
+        )
+        AssistantProgressMiniMetric(
+            label = "Reframes",
+            value = journal.cbtNotes.size.toString(),
+            color = WellnessSage,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    val note = latestReframe?.reframe ?: latestEntry?.excerpt ?: journal.tasks.firstOrNull { it.status != "completed" }?.title
+    if (!note.isNullOrBlank()) {
+        AssistantProgressNote(text = note, color = journalAccent(panel.itemType))
+    }
+}
+
+@Composable
+private fun AssistantJournalSaved(panel: AssistantJournalPanel, accent: Color) {
+    val title = panel.entry?.title
+        ?: panel.cbtNote?.situation
+        ?: panel.task?.title
+        ?: panel.title
+    val body = panel.entry?.excerpt
+        ?: panel.cbtNote?.reframe
+        ?: panel.task?.let { listOf(it.priority, it.category, it.dueDate).filter { value -> value.isNotBlank() }.joinToString(" - ") }
+        ?: panel.message
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(accent.copy(alpha = 0.13f))
+            .padding(11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = journalIcon(panel.itemType),
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = accent,
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = title.ifBlank { "Journal updated" },
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold),
+                color = WellnessDark,
+                maxLines = 2,
+            )
+            if (body.isNotBlank()) {
+                Text(
+                    text = body,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium),
+                    color = Color(0xFF746C5E),
+                    maxLines = 2,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun JournalStatusBadge(text: String, color: Color) {
+    if (text.isBlank()) return
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(color.copy(alpha = 0.18f))
+            .padding(horizontal = 7.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+            color = WellnessDark,
+            maxLines = 1,
+        )
+    }
+}
+
+private fun journalPanelSubtitle(panel: AssistantJournalPanel): String =
+    when (panel.mode) {
+        "snapshot" -> "Latest reflections, reframes, and mental-load tasks."
+        "confirmation" -> "Clara will save this only after you approve it."
+        else -> "Journal has been updated."
+    }
+
+private fun journalIcon(itemType: String): ImageVector = when (itemType) {
+    "cbt_note" -> Icons.Outlined.GraphicEq
+    "task" -> Icons.Outlined.AccessTime
+    else -> Icons.Outlined.ChatBubbleOutline
+}
+
+private fun journalAccent(itemType: String): Color = when (itemType) {
+    "cbt_note" -> WellnessSage
+    "task" -> WellnessMustard
+    else -> WellnessPink
 }
 
 @Composable

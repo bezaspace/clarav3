@@ -34,6 +34,7 @@ data class VoiceUiState(
     val activityCards: List<ActivityCard> = emptyList(),
     val carePanel: AssistantCarePanel? = null,
     val progressPanel: AssistantProgressPanel? = null,
+    val journalPanel: AssistantJournalPanel? = null,
 )
 
 data class BottomSheetChip(

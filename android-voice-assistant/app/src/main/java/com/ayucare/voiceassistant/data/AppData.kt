@@ -175,6 +175,34 @@ data class AssistantProgressPanel(
     val snapshot: HealthSnapshot = HealthSnapshot(),
 )
 
+data class AssistantJournalPanel(
+    val mode: String = "",
+    val title: String = "",
+    val message: String = "",
+    val itemType: String = "",
+    val preview: JournalPreview? = null,
+    val journal: JournalData = JournalData(),
+    val entry: JournalEntry? = null,
+    val cbtNote: CbtNote? = null,
+    val task: JournalTask? = null,
+)
+
+data class JournalPreview(
+    val itemType: String = "",
+    val title: String = "",
+    val body: String = "",
+    val mood: String = "",
+    val tags: List<String> = emptyList(),
+    val status: String = "",
+    val priority: String = "",
+    val category: String = "",
+    val dueDate: String = "",
+    val thought: String = "",
+    val feeling: String = "",
+    val reframe: String = "",
+    val nextAction: String = "",
+)
+
 data class HealthSnapshot(
     val dashboard: DashboardData = DashboardData(),
     val biomarkers: BiomarkerData = BiomarkerData(),
