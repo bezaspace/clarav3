@@ -51,12 +51,16 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.ShoppingBag
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.MaterialTheme
@@ -82,9 +86,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.ayucare.voiceassistant.data.ActivityCard
 import com.ayucare.voiceassistant.VoiceAssistantViewModel
+import com.ayucare.voiceassistant.data.AppUiState
 import com.ayucare.voiceassistant.data.AssistantVisualState
+import com.ayucare.voiceassistant.data.AssistantCarePanel
+import com.ayucare.voiceassistant.data.Biomarker
+import com.ayucare.voiceassistant.data.CareActivity
+import com.ayucare.voiceassistant.data.CareRecommendationCard
+import com.ayucare.voiceassistant.data.CareSlotOption
 import com.ayucare.voiceassistant.data.ConnectionState
+import com.ayucare.voiceassistant.data.DashboardScheduleItem
+import com.ayucare.voiceassistant.data.HistoryPoint
+import com.ayucare.voiceassistant.data.JournalData
+import com.ayucare.voiceassistant.data.JournalTask
 import com.ayucare.voiceassistant.data.VoiceUiState
 import com.ayucare.voiceassistant.ui.theme.WellnessBlue
 import com.ayucare.voiceassistant.ui.theme.WellnessBackground
@@ -125,9 +140,14 @@ data class ScheduleDay(
 )
 
 data class ScheduleEvent(
+    val id: String,
     val time: String,
     val title: String,
     val subtitle: String,
+    val category: String,
+    val status: String,
+    val completionNote: String,
+    val completedAt: String,
     val icon: ImageVector,
     val accent: Color,
 )
@@ -230,6 +250,7 @@ data class ClaraJournalEvent(
 @Composable
 fun VoicePage(viewModel: VoiceAssistantViewModel) {
     val state by viewModel.uiState.collectAsState()
+    val appState by viewModel.appState.collectAsState()
     val context = LocalContext.current
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -275,22 +296,28 @@ fun VoicePage(viewModel: VoiceAssistantViewModel) {
         when {
             showingBiomarkers -> BiomarkersDetailPage(
                 onBack = { showingBiomarkers = false },
+                appState = appState,
                 modifier = Modifier.padding(padding),
             )
             showingSchedule -> FullSchedulePage(
                 onBack = { showingSchedule = false },
+                appState = appState,
                 modifier = Modifier.padding(padding),
             )
             selectedTab == 0 -> HomeDashboard(
                 onScheduleViewAll = { showingSchedule = true },
+                appState = appState,
                 modifier = Modifier.padding(padding),
             )
             selectedTab == 1 -> ProgressPage(
                 onBiomarkersViewAll = { showingBiomarkers = true },
+                appState = appState,
                 modifier = Modifier.padding(padding),
             )
             selectedTab == 2 -> AssistantPage(
                 state = state,
+                activityCards = state.activityCards,
+                carePanel = state.carePanel,
                 onMicClick = {
                     val granted = ContextCompat.checkSelfPermission(
                         context,
@@ -309,9 +336,15 @@ fun VoicePage(viewModel: VoiceAssistantViewModel) {
                 modifier = Modifier.padding(padding),
             )
             selectedTab == 3 -> JournalPage(
+                appState = appState,
+                onToggleTask = viewModel::toggleJournalTask,
                 modifier = Modifier.padding(padding),
             )
-            else -> CarePage(modifier = Modifier.padding(padding))
+            else -> CarePage(
+                appState = appState,
+                onCreateActivity = viewModel::createCareActivity,
+                modifier = Modifier.padding(padding),
+            )
         }
     }
 }
@@ -319,53 +352,39 @@ fun VoicePage(viewModel: VoiceAssistantViewModel) {
 @Composable
 private fun HomeDashboard(
     onScheduleViewAll: () -> Unit,
+    appState: AppUiState,
     modifier: Modifier = Modifier,
 ) {
-    val schedule = remember {
-        listOf(
-            ScheduleItem(
-                title = "Dr. Sarah Johnson",
-                subtitle = "Cardiology consultation",
-                time = "10:30 AM",
-                icon = Icons.Outlined.LocalHospital,
-                accent = WellnessMustard,
-            ),
-            ScheduleItem(
-                title = "Take Aspirin",
-                subtitle = "1 tablet after lunch",
-                time = "01:00 PM",
-                icon = Icons.Outlined.Restaurant,
-                accent = WellnessSage,
-            ),
-            ScheduleItem(
-                title = "Evening Walk",
-                subtitle = "30 min in Gulshan Park",
-                time = "07:30 PM",
-                icon = Icons.AutoMirrored.Outlined.DirectionsWalk,
-                accent = Color(0xFF65B881),
-            ),
-        )
+    val schedule = remember(appState.dashboard.todaysSchedule) {
+        appState.dashboard.todaysSchedule
+            .filter { it.status.lowercase() != "completed" }
+            .take(4)
+            .map { it.toScheduleItem() }
+            .ifEmpty { appState.dashboard.todaysSchedule.take(4).map { it.toScheduleItem() } }
     }
-    val metrics = remember {
+    val metrics = remember(appState.mental, appState.medication, appState.workouts) {
+        val latestMental = appState.mental.historyData.lastOrNull()
         listOf(
             HealthMetric(
                 title = "Sleep",
-                value = "7h 30m",
-                caption = "Great",
+                value = latestMental?.sleepHours?.let { "${roundOne(it)}h" }
+                    ?: appState.mental.quickStats.avgSleep.ifBlank { "..." },
+                caption = "Latest",
                 icon = Icons.Outlined.GraphicEq,
                 accent = WellnessBlue,
             ),
             HealthMetric(
-                title = "Steps",
-                value = "6,432",
-                caption = "Goal 10,000",
+                title = "Workouts",
+                value = appState.workouts.sessions.size.toString(),
+                caption = appState.workouts.milestone.title.ifBlank { "This week" },
                 icon = Icons.AutoMirrored.Outlined.DirectionsWalk,
                 accent = WellnessSage,
             ),
             HealthMetric(
                 title = "Mood",
-                value = "Good",
-                caption = "Balanced",
+                value = latestMental?.moodScore?.let { roundOne(it) }
+                    ?: appState.mental.quickStats.moodIndex.ifBlank { "..." },
+                caption = appState.mental.quickStats.zenStreak.ifBlank { "Balanced" },
                 icon = Icons.Outlined.ChatBubbleOutline,
                 accent = Color(0xFFBCEAE9),
             ),
@@ -412,10 +431,10 @@ private fun HomeDashboard(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             HomeTopBar()
-            GreetingBlock()
+            GreetingBlock(name = appState.dashboard.profile.name)
             ScheduleCard(schedule = schedule, onViewAll = onScheduleViewAll)
             HealthSummary(metrics = metrics)
-            CareInsightCard()
+            CareInsightCard(appState = appState)
         }
     }
 }
@@ -423,9 +442,11 @@ private fun HomeDashboard(
 @Composable
 private fun FullSchedulePage(
     onBack: () -> Unit,
+    appState: AppUiState,
     modifier: Modifier = Modifier,
 ) {
-    val days = remember {
+    val days = remember(appState.dashboard.todaysSchedule) {
+        val todayEvents = appState.dashboard.todaysSchedule.map { it.toScheduleEvent() }
         listOf(
             ScheduleDay(
                 label = "Mon",
@@ -439,37 +460,27 @@ private fun FullSchedulePage(
                 date = "15",
                 title = "Yesterday, May 15",
                 events = listOf(
-                    ScheduleEvent("8:15 AM", "Morning medication", "Vitamin D with breakfast", Icons.Outlined.GraphicEq, WellnessMustard),
-                    ScheduleEvent("11:00 AM", "Check-in call", "Coach Priya, 15 min", Icons.Outlined.ChatBubbleOutline, WellnessBlue),
-                    ScheduleEvent("6:15 PM", "Dinner", "Dal, rice, cucumber salad", Icons.Outlined.Restaurant, WellnessSage),
-                    ScheduleEvent("9:30 PM", "Magnesium", "Take before bed", Icons.Outlined.LocalHospital, WellnessPink),
+                    ScheduleEvent("mock-1", "8:15 AM", "Morning medication", "Vitamin D with breakfast", "Medicine", "completed", "", "", Icons.Outlined.GraphicEq, WellnessMustard),
+                    ScheduleEvent("mock-2", "11:00 AM", "Check-in call", "Coach Priya, 15 min", "Mind", "completed", "", "", Icons.Outlined.ChatBubbleOutline, WellnessBlue),
+                    ScheduleEvent("mock-3", "6:15 PM", "Dinner", "Dal, rice, cucumber salad", "Diet", "completed", "", "", Icons.Outlined.Restaurant, WellnessSage),
+                    ScheduleEvent("mock-4", "9:30 PM", "Magnesium", "Take before bed", "Medicine", "completed", "", "", Icons.Outlined.LocalHospital, WellnessPink),
                 ),
             ),
             ScheduleDay(
                 label = "Thu",
                 date = "16",
-                title = "Today, May 16",
-                events = listOf(
-                    ScheduleEvent("8:00 AM", "Vitamin D", "Take with food", Icons.Outlined.GraphicEq, Color(0xFFE7E6F4)),
-                    ScheduleEvent("8:30 AM", "Breakfast", "Oatmeal, berries, almonds", Icons.Outlined.Restaurant, WellnessSage),
-                    ScheduleEvent("10:00 AM", "Therapy session", "Virtual", Icons.Outlined.LocalHospital, WellnessPink),
-                    ScheduleEvent("12:00 PM", "Hydration reminder", "500 ml water", Icons.Outlined.AccessTime, WellnessBlue),
-                    ScheduleEvent("12:30 PM", "Lunch", "Grilled salmon, quinoa, greens", Icons.Outlined.Restaurant, WellnessMustard),
-                    ScheduleEvent("3:00 PM", "Walk", "20 min - light activity", Icons.AutoMirrored.Outlined.DirectionsWalk, Color(0xFFD7EFC0)),
-                    ScheduleEvent("6:30 PM", "Dinner", "Lentil soup, salad", Icons.Outlined.Restaurant, WellnessSage),
-                    ScheduleEvent("8:00 PM", "Evening reflection", "2 min journal", Icons.Outlined.ChatBubbleOutline, Color(0xFFBCEAE9)),
-                    ScheduleEvent("9:30 PM", "Magnesium", "Take before bed", Icons.Outlined.LocalHospital, WellnessPink),
-                ),
+                title = "Today",
+                events = todayEvents,
             ),
             ScheduleDay(
                 label = "Fri",
                 date = "17",
                 title = "Tomorrow, May 17",
                 events = listOf(
-                    ScheduleEvent("7:45 AM", "Wake-up stretch", "8 min mobility", Icons.AutoMirrored.Outlined.DirectionsWalk, Color(0xFFD7EFC0)),
-                    ScheduleEvent("9:00 AM", "Breakfast", "Eggs, toast, fruit", Icons.Outlined.Restaurant, WellnessSage),
-                    ScheduleEvent("1:00 PM", "Take Aspirin", "1 tablet after lunch", Icons.Outlined.LocalHospital, WellnessMustard),
-                    ScheduleEvent("7:00 PM", "Family dinner", "Keep sodium light", Icons.Outlined.Restaurant, WellnessBlue),
+                    ScheduleEvent("mock-5", "7:45 AM", "Wake-up stretch", "8 min mobility", "Body", "pending", "", "", Icons.AutoMirrored.Outlined.DirectionsWalk, Color(0xFFD7EFC0)),
+                    ScheduleEvent("mock-6", "9:00 AM", "Breakfast", "Eggs, toast, fruit", "Diet", "pending", "", "", Icons.Outlined.Restaurant, WellnessSage),
+                    ScheduleEvent("mock-7", "1:00 PM", "Take Aspirin", "1 tablet after lunch", "Medicine", "pending", "", "", Icons.Outlined.LocalHospital, WellnessMustard),
+                    ScheduleEvent("mock-8", "7:00 PM", "Family dinner", "Keep sodium light", "Diet", "pending", "", "", Icons.Outlined.Restaurant, WellnessBlue),
                 ),
             ),
             ScheduleDay("Sat", "18", "Saturday, May 18", emptyList()),
@@ -477,6 +488,7 @@ private fun FullSchedulePage(
         )
     }
     var selectedDay by remember { mutableStateOf(3) }
+    var selectedActivity by remember { mutableStateOf<ActivityCard?>(null) }
     val day = days[selectedDay]
 
     Box(
@@ -516,7 +528,17 @@ private fun FullSchedulePage(
             ScheduleTopBar(title = day.title, onBack = onBack)
             DayPicker(days = days, selectedDay = selectedDay, onDaySelected = { selectedDay = it })
             DailyReadinessCard(day = day)
-            ScheduleTimeline(events = day.events)
+            ScheduleTimeline(
+                events = day.events,
+                onEventSelected = { selectedActivity = it.toActivityCard() },
+            )
+        }
+
+        selectedActivity?.let { activity ->
+            ActivityDetailDialog(
+                activity = activity,
+                onDismiss = { selectedActivity = null },
+            )
         }
     }
 }
@@ -650,7 +672,10 @@ private fun DailyReadinessCard(day: ScheduleDay) {
 }
 
 @Composable
-private fun ScheduleTimeline(events: List<ScheduleEvent>) {
+private fun ScheduleTimeline(
+    events: List<ScheduleEvent>,
+    onEventSelected: (ScheduleEvent) -> Unit,
+) {
     WellnessPanel {
         if (events.isEmpty()) {
             Column(
@@ -679,18 +704,28 @@ private fun ScheduleTimeline(events: List<ScheduleEvent>) {
             }
         } else {
             events.forEachIndexed { index, event ->
-                TimelineRow(event = event, isLast = index == events.lastIndex)
+                TimelineRow(
+                    event = event,
+                    isLast = index == events.lastIndex,
+                    onSelected = { onEventSelected(event) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun TimelineRow(event: ScheduleEvent, isLast: Boolean) {
+private fun TimelineRow(
+    event: ScheduleEvent,
+    isLast: Boolean,
+    onSelected: () -> Unit,
+) {
+    val isDone = event.status == "completed"
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(76.dp),
+            .height(76.dp)
+            .clickable { onSelected() },
         verticalAlignment = Alignment.Top,
     ) {
         Text(
@@ -702,7 +737,7 @@ private fun TimelineRow(event: ScheduleEvent, isLast: Boolean) {
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
             ),
-            color = WellnessDark,
+            color = if (isDone) Color(0xFF2F8F61) else WellnessDark,
         )
         Column(
             modifier = Modifier
@@ -714,7 +749,7 @@ private fun TimelineRow(event: ScheduleEvent, isLast: Boolean) {
                 modifier = Modifier
                     .size(7.dp)
                     .clip(CircleShape)
-                    .background(event.accent),
+                    .background(if (isDone) WellnessSage else event.accent),
             )
             if (!isLast) {
                 Box(
@@ -734,7 +769,7 @@ private fun TimelineRow(event: ScheduleEvent, isLast: Boolean) {
                 modifier = Modifier
                     .size(43.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(event.accent.copy(alpha = 0.28f)),
+                    .background(if (isDone) WellnessSage.copy(alpha = 0.24f) else event.accent.copy(alpha = 0.28f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -751,14 +786,22 @@ private fun TimelineRow(event: ScheduleEvent, isLast: Boolean) {
                     .padding(top = 1.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    text = event.title,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                    ),
-                    color = WellnessDark,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = event.title,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        color = if (isDone) Color(0xFF7E7668) else WellnessDark,
+                        maxLines = 1,
+                    )
+                    if (isDone) {
+                        Spacer(Modifier.width(8.dp))
+                        DoneBadge()
+                    }
+                }
                 Text(
                     text = event.subtitle,
                     style = MaterialTheme.typography.labelSmall.copy(
@@ -783,6 +826,7 @@ private fun TimelineRow(event: ScheduleEvent, isLast: Boolean) {
 @Composable
 private fun ProgressPage(
     onBiomarkersViewAll: () -> Unit,
+    appState: AppUiState,
     modifier: Modifier = Modifier,
 ) {
     val sections = remember { listOf("Medication", "Nutrition", "Fitness", "Mind") }
@@ -829,15 +873,15 @@ private fun ProgressPage(
                 onSectionSelected = { selectedSection = it },
             )
             if (selectedSection == 0) {
-                HealthScoreCard()
-                MedicationAdherenceCard()
-                BiomarkersCard(onViewAll = onBiomarkersViewAll)
+                HealthScoreCard(appState = appState)
+                MedicationAdherenceCard(appState = appState)
+                BiomarkersCard(appState = appState, onViewAll = onBiomarkersViewAll)
             } else if (selectedSection == 1) {
-                NutritionPageContent()
+                NutritionPageContent(appState = appState)
             } else if (selectedSection == 2) {
-                FitnessPageContent()
+                FitnessPageContent(appState = appState)
             } else {
-                MindPageContent()
+                MindPageContent(appState = appState)
             }
         }
     }
@@ -912,7 +956,7 @@ private fun ProgressSectionTabs(
 }
 
 @Composable
-private fun NutritionPageContent() {
+private fun NutritionPageContent(appState: AppUiState) {
     val macroSeries = remember {
         listOf(
             NutritionSeries(
@@ -961,14 +1005,14 @@ private fun NutritionPageContent() {
     NutritionLineChartCard(
         title = "Macros",
         subtitle = "30-day intake trend in grams",
-        series = macroSeries,
+        series = nutritionMacroSeries(appState.diet.historyData).ifEmpty { macroSeries },
         footer = "Protein is trending up while carbs are staying in the planned range.",
         valueSuffix = "g",
     )
     NutritionLineChartCard(
         title = "Micros",
         subtitle = "30-day target coverage",
-        series = microSeries,
+        series = nutritionMicroSeries(appState.diet.historyData).ifEmpty { microSeries },
         footer = "Vitamin D is catching up slowly; fiber and magnesium are the strongest streaks.",
         valueSuffix = "%",
     )
@@ -1315,14 +1359,25 @@ private fun NutritionLegendChip(
 }
 
 @Composable
-private fun FitnessPageContent() {
-    val stats = remember {
+private fun FitnessPageContent(appState: AppUiState) {
+    val stats = remember(appState.workouts) {
+        if (appState.workouts.sessions.isNotEmpty()) {
+            val sessionCount = appState.workouts.sessions.size
+            val firstSession = appState.workouts.sessions.first()
+            listOf(
+                FitnessStat("Active minutes", firstSession.duration.filter { it.isDigit() }.ifBlank { "0" }, "min", firstSession.type, 0.77f, WellnessSage),
+                FitnessStat("Workouts", sessionCount.toString(), "this week", appState.workouts.milestone.title.ifBlank { "Goal 5" }, 1f, Color(0xFF7BA7F2)),
+                FitnessStat("Calories burned", firstSession.cals.filter { it.isDigit() }.ifBlank { "0" }, "kcal", firstSession.intensity, 0.72f, WellnessMustard),
+                FitnessStat("Milestone", appState.workouts.milestone.achievedDate.ifBlank { "Now" }, "", appState.workouts.milestone.title.ifBlank { "In progress" }, 0.86f, WellnessPink),
+            )
+        } else {
         listOf(
             FitnessStat("Active minutes", "232", "min", "Goal 300 min", 0.77f, WellnessSage),
             FitnessStat("Workouts", "5", "this week", "Goal 5", 1f, Color(0xFF7BA7F2)),
             FitnessStat("Calories burned", "1,642", "kcal", "Daily burn", 0.72f, WellnessMustard),
             FitnessStat("Exercise streak", "12", "days", "Still warm", 0.86f, WellnessPink),
         )
+        }
     }
     val activeMinutes = remember { listOf(8f, 14f, 46f, 20f, 25f, 54f, 48f, 30f, 50f) }
     val performance = remember { listOf(510f, 470f, 650f, 560f, 610f, 635f, 780f) }
@@ -1923,15 +1978,19 @@ private fun MonthlyGoalRow(goal: FitnessGoal) {
 }
 
 @Composable
-private fun MindPageContent() {
-    val sleepStats = remember {
+private fun MindPageContent(appState: AppUiState) {
+    val sleepStats = remember(appState.mental) {
+        val latest = appState.mental.historyData.lastOrNull()
+        val mood = latest?.moodScore?.let { roundOne(it) } ?: appState.mental.quickStats.moodIndex.ifBlank { "7.6" }
+        val sleep = latest?.sleepHours?.let { roundOne(it) } ?: appState.mental.quickStats.avgSleep.ifBlank { "7.2" }
+        val deep = latest?.deepSleepHours?.let { roundOne(it) } ?: "1.8"
         listOf(
-            MindStat("Sleep duration", "7h 42", "m", "Goal 8h", WellnessBlue, Icons.Outlined.GraphicEq),
+            MindStat("Sleep duration", sleep, "hrs", "Goal 8h", WellnessBlue, Icons.Outlined.GraphicEq),
             MindStat("Sleep quality", "78", "Good", "Restorative", WellnessMustard, Icons.Outlined.Notifications),
             MindStat("Bedtime consistency", "87%", "Great", "Stable rhythm", Color(0xFF9B8CF2), Icons.Outlined.AccessTime),
             MindStat("Sleep debt", "25", "min", "Low", Color(0xFFBCEAE9), Icons.AutoMirrored.Outlined.KeyboardArrowRight),
-            MindStat("Time asleep", "7h 18", "m", "Quiet night", WellnessSage, Icons.Outlined.CalendarToday),
-            MindStat("Restfulness", "7.6", "/10", "Good", WellnessPink, Icons.Outlined.ChatBubbleOutline),
+            MindStat("Deep sleep", deep, "hrs", "Quiet night", WellnessSage, Icons.Outlined.CalendarToday),
+            MindStat("Mood", mood, "/10", appState.mental.quickStats.zenStreak.ifBlank { "Good" }, WellnessPink, Icons.Outlined.ChatBubbleOutline),
         )
     }
     val stages = remember {
@@ -2430,7 +2489,15 @@ private fun StressLoadCard(values: List<Float>) {
 }
 
 @Composable
-private fun HealthScoreCard() {
+private fun HealthScoreCard(appState: AppUiState) {
+    val score = appState.medication.overview.adherence.filter { it.isDigit() }.toIntOrNull() ?: 78
+    val scorePercent = score / 100f
+    val scoreLabel = when {
+        score >= 90 -> "Excellent"
+        score >= 75 -> "Good"
+        score >= 50 -> "Steady"
+        else -> "Needs attention"
+    }
     WellnessPanel {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2488,7 +2555,7 @@ private fun HealthScoreCard() {
                             ),
                         ),
                         startAngle = 132f,
-                        sweepAngle = 276f * 0.78f,
+                        sweepAngle = 276f * scorePercent.coerceIn(0f, 1f),
                         useCenter = false,
                         topLeft = topLeft,
                         size = androidx.compose.ui.geometry.Size(diameter, diameter),
@@ -2497,7 +2564,7 @@ private fun HealthScoreCard() {
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "78",
+                        text = score.toString(),
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontSize = 27.sp,
                             lineHeight = 28.sp,
@@ -2506,7 +2573,7 @@ private fun HealthScoreCard() {
                         color = WellnessDark,
                     )
                     Text(
-                        text = "Good",
+                        text = scoreLabel,
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                         color = Color(0xFF6F6758),
                     )
@@ -2515,7 +2582,7 @@ private fun HealthScoreCard() {
             Spacer(Modifier.width(18.dp))
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text(
-                    text = "Good",
+                    text = scoreLabel,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
@@ -2523,7 +2590,7 @@ private fun HealthScoreCard() {
                     color = Color(0xFF75BA72),
                 )
                 Text(
-                    text = "+12% vs last month",
+                    text = appState.medication.overview.streak.ifBlank { appState.dashboard.profile.status },
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
@@ -2536,9 +2603,9 @@ private fun HealthScoreCard() {
 }
 
 @Composable
-private fun MedicationAdherenceCard() {
+private fun MedicationAdherenceCard(appState: AppUiState) {
     val days = listOf("M", "T", "W", "T", "F", "S", "S")
-    val adherence = listOf(
+    val fallbackAdherence = listOf(
         listOf(0.95f, 0.92f, 0.88f, 1.00f, 0.82f, 0.90f, 0.96f, 0.78f, 0.46f, 0.18f),
         listOf(0.84f, 0.90f, 0.86f, 0.92f, 0.80f, 0.88f, 0.93f, 0.74f, 0.58f, 0.30f),
         listOf(0.97f, 0.91f, 0.89f, 0.85f, 0.93f, 0.95f, 0.88f, 0.67f, 0.28f, 0.55f),
@@ -2547,6 +2614,14 @@ private fun MedicationAdherenceCard() {
         listOf(0.72f, 0.78f, 0.84f, 0.81f, 0.75f, 0.79f, 0.83f, 0.60f, 0.26f, 0.48f),
         listOf(0.86f, 0.91f, 0.82f, 0.88f, 0.79f, 0.85f, 0.89f, 0.68f, 0.52f, 0.20f),
     )
+    val adherence = remember(appState.medication.adherenceRows) {
+        appState.medication.adherenceRows
+            .takeLast(70)
+            .chunked(10)
+            .takeLast(7)
+            .map { row -> row.map { day -> (day.level / 4f).coerceIn(0f, 1f) } }
+            .ifEmpty { fallbackAdherence }
+    }
     WellnessPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -2559,7 +2634,7 @@ private fun MedicationAdherenceCard() {
                 color = WellnessDark,
             )
             Text(
-                text = "Last 10 doses",
+                text = appState.medication.overview.adherence.ifBlank { "Last 10 doses" },
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
@@ -2657,13 +2732,24 @@ private fun AdherenceLegend(color: Color, label: String) {
 }
 
 @Composable
-private fun BiomarkersCard(onViewAll: () -> Unit) {
+private fun BiomarkersCard(appState: AppUiState, onViewAll: () -> Unit) {
+    val featured = appState.biomarkers.biomarkers.take(2)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader(title = "Biomarkers", onViewAll = onViewAll)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (featured.size >= 2) {
+                featured.forEach { marker ->
+                    BiomarkerTile(
+                        title = marker.name,
+                        value = marker.valueLabel(),
+                        status = marker.status.replaceFirstChar { it.uppercase() },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            } else {
             BiomarkerTile(
                 title = "Blood Pressure",
                 value = "120/80",
@@ -2676,6 +2762,7 @@ private fun BiomarkersCard(onViewAll: () -> Unit) {
                 status = "Normal",
                 modifier = Modifier.weight(1f),
             )
+            }
         }
     }
 }
@@ -2732,9 +2819,10 @@ private fun BiomarkerTile(
 @Composable
 private fun BiomarkersDetailPage(
     onBack: () -> Unit,
+    appState: AppUiState,
     modifier: Modifier = Modifier,
 ) {
-    val biomarkers = remember {
+    val fallbackBiomarkers = remember {
         listOf(
             BiomarkerReading("Blood Pressure", "120/80", "118/76", "Cardio steady", 0.76f, WellnessSage),
             BiomarkerReading("Fasting Glucose", "98 mg/dL", "90-95", "Morning draw", 0.68f, WellnessBlue),
@@ -2757,6 +2845,11 @@ private fun BiomarkersDetailPage(
             BiomarkerReading("Omega-3 Index", "5.2%", "8%", "Fatty acid status", 0.46f, Color(0xFFBCEAE9)),
             BiomarkerReading("Resting Insulin", "9.8 uIU/mL", "< 7", "Metabolic signal", 0.43f, WellnessPink),
         )
+    }
+    val biomarkers = remember(appState.biomarkers.biomarkers) {
+        appState.biomarkers.biomarkers.mapIndexed { index, marker ->
+            marker.toBiomarkerReading(index)
+        }.ifEmpty { fallbackBiomarkers }
     }
 
     Box(
@@ -2794,7 +2887,7 @@ private fun BiomarkersDetailPage(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             BiomarkersDetailTopBar(onBack = onBack)
-            BiomarkerSummaryCard()
+            BiomarkerSummaryCard(appState = appState)
             biomarkers.forEach { reading ->
                 BiomarkerReadingRow(reading = reading)
             }
@@ -2849,7 +2942,8 @@ private fun BiomarkersDetailTopBar(onBack: () -> Unit) {
 }
 
 @Composable
-private fun BiomarkerSummaryCard() {
+private fun BiomarkerSummaryCard(appState: AppUiState) {
+    val summary = appState.biomarkers.summary
     WellnessPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -2860,7 +2954,7 @@ private fun BiomarkerSummaryCard() {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "20",
+                    text = (summary.metricsAnalyzed.takeIf { it > 0 } ?: appState.biomarkers.biomarkers.size).toString(),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontSize = 19.sp,
                         fontWeight = FontWeight.Bold,
@@ -2871,7 +2965,7 @@ private fun BiomarkerSummaryCard() {
             Spacer(Modifier.width(13.dp))
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "Quarterly biomarker plan",
+                    text = summary.title.ifBlank { "Quarterly biomarker plan" },
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
@@ -2879,7 +2973,10 @@ private fun BiomarkerSummaryCard() {
                     color = WellnessDark,
                 )
                 Text(
-                    text = "Last panel: May 2026  •  Next target: August 2026",
+                    text = listOf(summary.currentBaselineLabel, summary.nextRetest)
+                        .filter { it.isNotBlank() }
+                        .joinToString("  •  ")
+                        .ifBlank { "Biomarker data loaded from backend" },
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
@@ -3070,10 +3167,11 @@ private fun HeaderIconButton(icon: ImageVector, label: String) {
 }
 
 @Composable
-private fun GreetingBlock() {
+private fun GreetingBlock(name: String) {
+    val displayName = name.ifBlank { "Clara" }
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text(
-            text = "Good Morning,\nClara!",
+            text = "Good Morning,\n$displayName!",
             style = MaterialTheme.typography.displayLarge.copy(
                 fontSize = 29.sp,
                 lineHeight = 33.sp,
@@ -3248,7 +3346,8 @@ private fun HealthMetricTile(metric: HealthMetric, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun CareInsightCard() {
+private fun CareInsightCard(appState: AppUiState) {
+    val nextActivity = appState.careActivity.firstOrNull()
     WellnessPanel {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -3271,7 +3370,7 @@ private fun CareInsightCard() {
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Hydration streak",
+                    text = nextActivity?.title ?: "Backend connected",
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
@@ -3279,13 +3378,15 @@ private fun CareInsightCard() {
                     color = WellnessDark,
                 )
                 Text(
-                    text = "5 glasses logged today. Clara suggests one more before dinner.",
+                    text = nextActivity?.let {
+                        "${it.kind.replaceFirstChar { char -> char.uppercase() }} ${it.status}; ${it.eta.ifBlank { it.scheduledFor.ifBlank { "tracked in Care" } }}."
+                    } ?: "Dashboard, care, journal, and progress are loading from the backend.",
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
                     color = Color(0xFF817865),
                 )
             }
             Text(
-                text = "82%",
+                text = if (appState.error.isBlank()) "${appState.careActivity.size}" else "!",
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
@@ -3440,10 +3541,159 @@ private fun BottomNavItem(
     }
 }
 
+private fun DashboardScheduleItem.toScheduleItem(): ScheduleItem =
+    ScheduleItem(
+        title = title,
+        subtitle = duration.ifBlank { type },
+        time = time,
+        icon = scheduleIcon(type),
+        accent = scheduleAccent(type),
+    )
+
+private fun DashboardScheduleItem.toScheduleEvent(): ScheduleEvent =
+    ScheduleEvent(
+        id = id,
+        time = time,
+        title = title,
+        subtitle = duration.ifBlank { status.replaceFirstChar { it.uppercase() } },
+        category = type,
+        status = status,
+        completionNote = completionNote,
+        completedAt = completedAt,
+        icon = scheduleIcon(type),
+        accent = scheduleAccent(type),
+    )
+
+private fun scheduleIcon(type: String): ImageVector = when (type.lowercase()) {
+    "mind" -> Icons.Outlined.ChatBubbleOutline
+    "body" -> Icons.AutoMirrored.Outlined.DirectionsWalk
+    "diet" -> Icons.Outlined.Restaurant
+    "medicine" -> Icons.Outlined.LocalHospital
+    else -> Icons.Outlined.AccessTime
+}
+
+private fun scheduleAccent(type: String): Color = when (type.lowercase()) {
+    "mind" -> WellnessBlue
+    "body" -> WellnessSage
+    "diet" -> WellnessMustard
+    "medicine" -> WellnessPink
+    else -> Color(0xFFBCEAE9)
+}
+
+private fun activityIcon(activity: ActivityCard): ImageVector =
+    scheduleIcon(activity.category.ifBlank { activity.kind })
+
+private fun activityAccent(activity: ActivityCard): Color =
+    scheduleAccent(activity.category.ifBlank { activity.kind })
+
+private fun ScheduleEvent.toActivityCard(): ActivityCard =
+    ActivityCard(
+        id = id,
+        kind = "schedule",
+        title = title,
+        category = category,
+        status = status,
+        timeLabel = time,
+        supportingText = subtitle,
+        scheduledFor = time,
+        completionNote = completionNote,
+        completedAt = completedAt,
+    )
+
+private fun nutritionMacroSeries(history: List<HistoryPoint>): List<NutritionSeries> {
+    if (history.isEmpty()) return emptyList()
+    return listOf(
+        NutritionSeries("Carbs", Color(0xFFFFB84D), history.map { it.carbs.toFloat() }),
+        NutritionSeries("Protein", Color(0xFF66C37A), history.map { it.protein.toFloat() }),
+        NutritionSeries("Fats", Color(0xFF7BA7F2), history.map { it.fats.toFloat() }),
+    )
+}
+
+private fun nutritionMicroSeries(history: List<HistoryPoint>): List<NutritionSeries> {
+    if (history.isEmpty()) return emptyList()
+    return listOf(
+        NutritionSeries("Fiber", Color(0xFF66C37A), history.map { it.fiber.toFloat() }),
+        NutritionSeries("Vitamins", Color(0xFFFFD957), history.map { it.vitamins.toFloat() }),
+        NutritionSeries("Minerals", Color(0xFF9B8CF2), history.map { it.minerals.toFloat() }),
+    )
+}
+
+private fun Biomarker.valueLabel(): String =
+    "${numberLabel(baseline)}${if (unit.isNotBlank()) " $unit" else ""}"
+
+private fun Biomarker.toBiomarkerReading(index: Int): BiomarkerReading {
+    val progress = if (goal == 0.0) 0.5f else {
+        val ratio = if (baseline <= goal) baseline / goal else goal / baseline
+        ratio.toFloat().coerceIn(0.15f, 1f)
+    }
+    val colors = listOf(WellnessSage, WellnessBlue, WellnessMustard, WellnessPink, Color(0xFFBCEAE9), Color(0xFFE8D6FF))
+    return BiomarkerReading(
+        name = name,
+        current = valueLabel(),
+        target = "${numberLabel(goal)}${if (unit.isNotBlank()) " $unit" else ""}",
+        note = description.ifBlank { category },
+        progress = progress,
+        accent = colors[index % colors.size],
+    )
+}
+
+private fun JournalTask.toMockMentalLoadTask(): MockMentalLoadTask =
+    MockMentalLoadTask(
+        id = id,
+        title = title,
+        status = status,
+        priority = priority,
+        category = category,
+        dueDate = dueDate,
+    )
+
+private fun com.ayucare.voiceassistant.data.JournalEntry.toMockReflection(index: Int): MockReflection {
+    val tones = listOf(WellnessSage, WellnessMustard, WellnessBlue, WellnessPink)
+    return MockReflection(
+        id = id,
+        title = title,
+        date = date,
+        time = time,
+        mood = mood.ifBlank { "Reflective" },
+        excerpt = excerpt,
+        content = content.ifBlank { excerpt },
+        tags = tags,
+        tone = tones[index % tones.size],
+    )
+}
+
+private fun JournalData.toClaraJournalEvents(): List<ClaraJournalEvent> {
+    val entryEvents = entries.take(2).map {
+        ClaraJournalEvent(
+            title = "Saved reflection",
+            detail = it.title.ifBlank { it.excerpt },
+            time = it.time.ifBlank { it.date },
+            color = WellnessSage,
+        )
+    }
+    val taskEvents = tasks.take(2).map {
+        ClaraJournalEvent(
+            title = if (it.status == "completed") "Completed task" else "Added mental-load task",
+            detail = it.title,
+            time = it.dueDate,
+            color = if (it.status == "completed") WellnessSage else WellnessMustard,
+        )
+    }
+    return (entryEvents + taskEvents).take(4)
+}
+
+private fun numberLabel(value: Double): String =
+    if (value % 1.0 == 0.0) value.toInt().toString() else roundOne(value)
+
+private fun roundOne(value: Double): String =
+    String.format(java.util.Locale.US, "%.1f", value)
+
 private val WellnessDark = Color(0xFF24210F)
 
 @Composable
 private fun JournalPage(
+    appState: AppUiState,
+    onToggleTask: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tabs = remember {
@@ -3454,10 +3704,29 @@ private fun JournalPage(
             JournalTab("mental_load", "Mental Load", Icons.Outlined.AccessTime),
         )
     }
-    val reflections = remember { mockReflections() }
-    val reframes = remember { mockReframes() }
-    val events = remember { mockClaraJournalEvents() }
-    var tasks by remember { mutableStateOf(mockMentalLoadTasks()) }
+    val reflections = remember(appState.journal.entries) {
+        appState.journal.entries.mapIndexed { index, entry -> entry.toMockReflection(index) }
+            .ifEmpty { mockReflections() }
+    }
+    val reframes = remember(appState.journal.cbtNotes) {
+        appState.journal.cbtNotes.map { note ->
+            MockReframe(
+                id = note.id,
+                date = note.date,
+                time = note.time,
+                situation = note.situation,
+                thought = note.thought,
+                feeling = note.feeling,
+                reframe = note.reframe,
+                action = note.action,
+            )
+        }.ifEmpty { mockReframes() }
+    }
+    val tasks = remember(appState.journal.tasks) {
+        appState.journal.tasks.map { it.toMockMentalLoadTask() }
+            .ifEmpty { mockMentalLoadTasks() }
+    }
+    val events = remember(appState.journal) { appState.journal.toClaraJournalEvents().ifEmpty { mockClaraJournalEvents() } }
     var selectedTab by remember { mutableStateOf("today") }
 
     Box(
@@ -3507,13 +3776,7 @@ private fun JournalPage(
                 "mental_load" -> JournalMentalLoadView(
                     tasks = tasks,
                     onToggleTask = { task ->
-                        tasks = tasks.map {
-                            if (it.id == task.id) {
-                                it.copy(status = if (it.status == "completed") "todo" else "completed")
-                            } else {
-                                it
-                            }
-                        }
+                        onToggleTask(task.id)
                     },
                 )
                 else -> JournalTodayView(
@@ -3522,13 +3785,7 @@ private fun JournalPage(
                     tasks = tasks,
                     events = events,
                     onToggleTask = { task ->
-                        tasks = tasks.map {
-                            if (it.id == task.id) {
-                                it.copy(status = if (it.status == "completed") "todo" else "completed")
-                            } else {
-                                it
-                            }
-                        }
+                        onToggleTask(task.id)
                     },
                 )
             }
@@ -4270,10 +4527,13 @@ private fun mockClaraJournalEvents(): List<ClaraJournalEvent> = listOf(
 @Composable
 private fun AssistantPage(
     state: VoiceUiState,
+    activityCards: List<ActivityCard>,
+    carePanel: AssistantCarePanel?,
     onMicClick: () -> Unit,
     onEndSession: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var selectedActivity by remember { mutableStateOf<ActivityCard?>(null) }
     val activeColor = when (state.visualState) {
         AssistantVisualState.Error -> MaterialTheme.colorScheme.error
         AssistantVisualState.Speaking -> WellnessPink
@@ -4339,6 +4599,15 @@ private fun AssistantPage(
                 }
             }
 
+            if (carePanel != null) {
+                AssistantCarePanelView(panel = carePanel)
+            } else if (activityCards.isNotEmpty()) {
+                AssistantActivityCards(
+                    cards = activityCards,
+                    onCardSelected = { selectedActivity = it },
+                )
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -4392,6 +4661,640 @@ private fun AssistantPage(
                 }
             }
         }
+
+        selectedActivity?.let { activity ->
+            ActivityDetailDialog(
+                activity = activity,
+                onDismiss = { selectedActivity = null },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AssistantCarePanelView(panel: AssistantCarePanel) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f)),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, careAccent(panel.kind).copy(alpha = 0.24f), RoundedCornerShape(22.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(careAccent(panel.kind).copy(alpha = 0.24f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = careIcon(panel.kind),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = WellnessDark,
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = panel.title.ifBlank { "Care options" },
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        color = WellnessDark,
+                        maxLines = 1,
+                    )
+                    if (panel.message.isNotBlank()) {
+                        Text(
+                            text = panel.message,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                            ),
+                            color = Color(0xFF746C5E),
+                            maxLines = 2,
+                        )
+                    }
+                }
+            }
+
+            when (panel.mode) {
+                "bookingSlots" -> CareSlotsPanel(panel)
+                "orderReview" -> CareOrderReviewPanel(panel)
+                "confirmation" -> panel.activity?.let { CareConfirmationPanel(it) }
+                else -> CareRecommendationList(panel.recommendations)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CareRecommendationList(items: List<CareRecommendationCard>) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.take(4).forEachIndexed { index, item ->
+            CareRecommendationRow(index = index, item = item)
+        }
+    }
+}
+
+@Composable
+private fun CareRecommendationRow(index: Int, item: CareRecommendationCard) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(careAccent(item.kind).copy(alpha = 0.1f))
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.78f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "${index + 1}",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+                color = WellnessDark,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = item.title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = WellnessDark,
+                    maxLines = 1,
+                )
+                if (item.rating > 0) {
+                    Icon(
+                        imageVector = Icons.Outlined.Star,
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = Color(0xFFD4A018),
+                    )
+                    Spacer(Modifier.width(2.dp))
+                    Text(
+                        text = item.rating.oneDecimalLabel(),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        color = Color(0xFF746C5E),
+                    )
+                }
+            }
+            Text(
+                text = careRecommendationSubtitle(item),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                ),
+                color = Color(0xFF746C5E),
+                maxLines = 2,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = item.price.rupeeLabelCompact(),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+                color = WellnessDark,
+                maxLines = 1,
+            )
+            CareTinyBadge(text = carePrimaryBadge(item), color = careAccent(item.kind))
+        }
+    }
+}
+
+@Composable
+private fun CareSlotsPanel(panel: AssistantCarePanel) {
+    val selected = panel.selected
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        if (selected != null) {
+            CareSelectedSummary(item = selected)
+        }
+        panel.slots.take(5).forEachIndexed { index, slot ->
+            CareSlotRow(index = index, slot = slot, kind = panel.kind)
+        }
+    }
+}
+
+@Composable
+private fun CareSelectedSummary(item: CareRecommendationCard) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFFFFFCF4))
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = careIcon(item.kind),
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = careAccent(item.kind),
+        )
+        Spacer(Modifier.width(9.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold),
+                color = WellnessDark,
+                maxLines = 1,
+            )
+            Text(
+                text = careRecommendationSubtitle(item),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
+                color = Color(0xFF746C5E),
+                maxLines = 2,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CareSlotRow(index: Int, slot: CareSlotOption, kind: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(15.dp))
+            .background(careAccent(kind).copy(alpha = 0.12f))
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "${index + 1}",
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+            color = careAccent(kind),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = slot.dayLabel,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                color = WellnessDark,
+                maxLines = 1,
+            )
+            Text(
+                text = slot.mode,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
+                color = Color(0xFF746C5E),
+                maxLines = 1,
+            )
+        }
+        Text(
+            text = slot.time,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+            color = WellnessDark,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun CareOrderReviewPanel(panel: AssistantCarePanel) {
+    val selected = panel.selected ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        CareSelectedSummary(item = selected)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            CareReviewMetric("Qty", panel.quantity.toString(), Modifier.weight(1f))
+            CareReviewMetric("Fulfillment", panel.fulfillment.ifBlank { "Home delivery" }, Modifier.weight(1.45f))
+            CareReviewMetric("ETA", panel.eta.ifBlank { selected.eta.ifBlank { "Today" } }, Modifier.weight(1f))
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(15.dp))
+                .background(WellnessMustard.copy(alpha = 0.28f))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Total",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                color = Color(0xFF746C5E),
+            )
+            Text(
+                text = panel.totalPrice.rupeeLabelCompact(),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                color = WellnessDark,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CareReviewMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFFFFFCF4))
+            .padding(horizontal = 9.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+            color = Color(0xFF817865),
+            maxLines = 1,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold),
+            color = WellnessDark,
+            maxLines = 2,
+        )
+    }
+}
+
+@Composable
+private fun CareConfirmationPanel(activity: CareActivity) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(WellnessSage.copy(alpha = 0.2f))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(WellnessSage.copy(alpha = 0.34f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = careIcon(activity.kind),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = WellnessDark,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = activity.title,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold),
+                color = WellnessDark,
+                maxLines = 1,
+            )
+            Text(
+                text = careActivitySubtitle(activity),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
+                color = Color(0xFF746C5E),
+                maxLines = 2,
+            )
+        }
+        CareTinyBadge(text = activity.status.replaceFirstChar { it.uppercase() }, color = WellnessSage)
+    }
+}
+
+@Composable
+private fun CareTinyBadge(text: String, color: Color) {
+    if (text.isBlank()) return
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(color.copy(alpha = 0.2f))
+            .padding(horizontal = 7.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+            color = WellnessDark,
+            maxLines = 1,
+        )
+    }
+}
+
+private fun careIcon(kind: String): ImageVector = when (kind) {
+    "food" -> Icons.Outlined.Restaurant
+    "doctor" -> Icons.Outlined.Person
+    "lab" -> Icons.Outlined.GraphicEq
+    else -> Icons.Outlined.ShoppingBag
+}
+
+private fun careAccent(kind: String): Color = when (kind) {
+    "food" -> WellnessPink
+    "doctor" -> WellnessSage
+    "lab" -> WellnessBlue
+    else -> WellnessMustard
+}
+
+private fun careRecommendationSubtitle(item: CareRecommendationCard): String =
+    listOf(
+        item.provider,
+        item.detail,
+        item.availability,
+        item.eta.ifBlank { "" },
+        item.location,
+    ).filter { it.isNotBlank() }.joinToString(" - ").ifBlank { item.category.ifBlank { "Care option" } }
+
+private fun carePrimaryBadge(item: CareRecommendationCard): String =
+    when {
+        item.offer.isNotBlank() -> item.offer
+        item.isOnline -> "Online"
+        item.availability.isNotBlank() -> item.availability
+        item.eta.isNotBlank() -> item.eta
+        else -> item.category
+    }
+
+private fun careActivitySubtitle(activity: CareActivity): String =
+    listOf(
+        activity.provider,
+        activity.scheduledFor,
+        activity.eta,
+        activity.fulfillment,
+        if (activity.quantity > 1) "Qty ${activity.quantity}" else "",
+    ).filter { it.isNotBlank() }.joinToString(" - ").ifBlank { activity.kind.replaceFirstChar { it.uppercase() } }
+
+private fun Double.rupeeLabelCompact(): String =
+    if (this <= 0.0) "Included" else if (this % 1.0 == 0.0) "Rs ${toInt()}" else "Rs ${oneDecimalLabel()}"
+
+private fun Double.oneDecimalLabel(): String =
+    String.format(java.util.Locale.US, "%.1f", this)
+
+@Composable
+private fun AssistantActivityCards(
+    cards: List<ActivityCard>,
+    onCardSelected: (ActivityCard) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        cards.take(2).forEach { card ->
+            ActivityCardPreview(
+                activity = card,
+                onClick = { onCardSelected(card) },
+            )
+        }
+        if (cards.size > 2) {
+            Text(
+                text = "${cards.size - 2} more items in today's schedule",
+                modifier = Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActivityCardPreview(
+    activity: ActivityCard,
+    onClick: () -> Unit,
+) {
+    val accent = activityAccent(activity)
+    val isDone = activity.status == "completed"
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.86f)),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, accent.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
+                .padding(13.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(accent.copy(alpha = 0.24f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = activityIcon(activity),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = WellnessDark,
+                )
+            }
+            Spacer(Modifier.width(11.dp))
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = activity.category.ifBlank { activity.kind.replaceFirstChar { it.uppercase() } },
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        color = accent,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = activity.timeLabel.ifBlank { "Any time" },
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = Color(0xFF817865),
+                    )
+                }
+                Text(
+                    text = activity.title,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = if (isDone) Color(0xFF7E7668) else WellnessDark,
+                    maxLines = 2,
+                )
+                Text(
+                    text = activity.supportingText,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                    ),
+                    color = Color(0xFF746C5E),
+                    maxLines = 2,
+                )
+                if (isDone) {
+                    DoneBadge()
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(if (isDone) WellnessSage.copy(alpha = 0.32f) else Color.Transparent)
+                    .border(1.dp, if (isDone) WellnessSage else Color(0xFFC8BEAA), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isDone) {
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(WellnessSage),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DoneBadge() {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(WellnessSage.copy(alpha = 0.22f))
+            .border(1.dp, WellnessSage.copy(alpha = 0.36f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "Done",
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+            color = Color(0xFF2F8F61),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun ActivityDetailDialog(
+    activity: ActivityCard,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+        title = {
+            Text(
+                text = activity.title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = WellnessDark,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                ActivityDetailRow("Category", activity.category.ifBlank { activity.kind })
+                ActivityDetailRow("Time", activity.timeLabel.ifBlank { activity.scheduledFor.ifBlank { "Any time" } })
+                ActivityDetailRow("Status", activity.status.replaceFirstChar { it.uppercase() })
+                if (activity.supportingText.isNotBlank()) {
+                    ActivityDetailRow("Plan", activity.supportingText)
+                }
+                if (activity.completionNote.isNotBlank()) {
+                    ActivityDetailRow("Completion note", activity.completionNote)
+                }
+                if (activity.completedAt.isNotBlank()) {
+                    ActivityDetailRow("Logged", activity.completedAt)
+                }
+            }
+        },
+        containerColor = Color(0xFFFFFCF4),
+    )
+}
+
+@Composable
+private fun ActivityDetailRow(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+            color = Color(0xFF817865),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+                fontWeight = FontWeight.Medium,
+            ),
+            color = WellnessDark,
+        )
     }
 }
 

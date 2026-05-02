@@ -31,6 +31,8 @@ data class VoiceUiState(
     val userText: String = "",
     val assistantSampleRate: Int = 24000,
     val bottomSheetOpen: Boolean = false,
+    val activityCards: List<ActivityCard> = emptyList(),
+    val carePanel: AssistantCarePanel? = null,
 )
 
 data class BottomSheetChip(

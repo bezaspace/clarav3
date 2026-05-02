@@ -9,8 +9,17 @@ import android.media.MediaRecorder
 import android.media.audiofx.AutomaticGainControl
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.ayucare.voiceassistant.data.AppUiState
+import com.ayucare.voiceassistant.data.ActivityCard
+import com.ayucare.voiceassistant.data.AssistantCarePanel
 import com.ayucare.voiceassistant.data.AssistantVisualState
+import com.ayucare.voiceassistant.data.CareActivity
+import com.ayucare.voiceassistant.data.CareRecommendationCard
+import com.ayucare.voiceassistant.data.CareSlotOption
+import com.ayucare.voiceassistant.data.ClaraApiClient
 import com.ayucare.voiceassistant.data.ConnectionState
+import com.ayucare.voiceassistant.data.DashboardScheduleItem
+import com.ayucare.voiceassistant.data.JournalTask
 import com.ayucare.voiceassistant.data.VoiceConfig
 import com.ayucare.voiceassistant.data.VoiceUiState
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +39,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import kotlin.math.abs
@@ -40,9 +50,13 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
     private val _uiState = MutableStateFlow(VoiceUiState())
     val uiState: StateFlow<VoiceUiState> = _uiState.asStateFlow()
 
+    private val _appState = MutableStateFlow(AppUiState())
+    val appState: StateFlow<AppUiState> = _appState.asStateFlow()
+
     private val client = OkHttpClient.Builder()
         .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
         .build()
+    private val apiClient = ClaraApiClient(client)
 
     private var socket: WebSocket? = null
     private var recorder: AudioRecord? = null
@@ -55,12 +69,80 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
     @Volatile
     private var suppressAssistantPlayback = false
 
+    init {
+        refreshAppData()
+    }
+
     fun setServerUrl(url: String) {
         _uiState.update { it.copy(serverUrl = url) }
+        refreshAppData(url)
     }
 
     fun setWarning(message: String) {
         _uiState.update { it.copy(warning = message) }
+    }
+
+    fun refreshAppData(baseUrl: String = _uiState.value.serverUrl) {
+        viewModelScope.launch {
+            _appState.update { it.copy(isLoading = true, error = "") }
+            try {
+                _appState.value = apiClient.loadAppData(baseUrl)
+            } catch (error: Throwable) {
+                _appState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = error.message ?: "Could not load backend data",
+                    )
+                }
+            }
+        }
+    }
+
+    fun createCareActivity(kind: String, sourceItemId: String, note: String? = null) {
+        viewModelScope.launch {
+            try {
+                val activity = apiClient.createCareActivity(
+                    baseUrl = _uiState.value.serverUrl,
+                    kind = kind,
+                    sourceItemId = sourceItemId,
+                    note = note,
+                )
+                _appState.update { state ->
+                    state.copy(careActivity = listOf(activity) + state.careActivity)
+                }
+            } catch (error: Throwable) {
+                _appState.update {
+                    it.copy(error = error.message ?: "Could not create care activity")
+                }
+            }
+        }
+    }
+
+    fun toggleJournalTask(taskId: String) {
+        val current = _appState.value.journal.tasks.firstOrNull { it.id == taskId } ?: return
+        val nextStatus = if (current.status == "completed") "todo" else "completed"
+        viewModelScope.launch {
+            try {
+                val updated = apiClient.updateJournalTaskStatus(
+                    baseUrl = _uiState.value.serverUrl,
+                    taskId = taskId,
+                    status = nextStatus,
+                )
+                _appState.update { state ->
+                    state.copy(
+                        journal = state.journal.copy(
+                            tasks = state.journal.tasks.map { task ->
+                                if (task.id == updated.id) updated else task
+                            },
+                        ),
+                    )
+                }
+            } catch (error: Throwable) {
+                _appState.update {
+                    it.copy(error = error.message ?: "Could not update journal task")
+                }
+            }
+        }
     }
 
     fun connect() {
@@ -122,6 +204,8 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                             connectionState = ConnectionState.Idle,
                             visualState = AssistantVisualState.Idle,
                             isRecording = false,
+                            activityCards = emptyList(),
+                            carePanel = null,
                         )
                     }
                 }
@@ -152,7 +236,9 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                 isRecording = false,
                 sessionId = "",
                 warning = "",
-                statusText = "Session ended"
+                statusText = "Session ended",
+                activityCards = emptyList(),
+                carePanel = null,
             )
         }
         releasePlayback()
@@ -261,6 +347,97 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                 _uiState.update { it.copy(assistantSampleRate = playbackRate) }
             }
 
+            "current_activity" -> {
+                val primary = payload.optJSONObject("activityCard")?.parseActivityCard()
+                    ?: payload.optJSONObject("currentItem")?.parseActivityCard()
+                    ?: payload.optJSONObject("upcomingItem")?.parseActivityCard()
+                primary?.let { showActivityCards(listOf(it)) }
+            }
+
+            "schedule_snapshot" -> {
+                val cards = payload.optJSONArray("items").mapObjects { it.parseActivityCard() }
+                showActivityCards(cards)
+            }
+
+            "activity_completion_logged" -> {
+                val card = payload.optJSONObject("activityCard")?.parseActivityCard()
+                if (card != null) {
+                    showActivityCards(listOf(card))
+                    applyCompletedActivity(card)
+                }
+            }
+
+            "care_recommendations", "care_activity_confirmation_required" -> {
+                val recommendations = payload.optJSONArray("recommendations").mapObjects {
+                    it.parseCareRecommendationCard()
+                }
+                if (recommendations.isNotEmpty()) {
+                    showCarePanel(
+                        AssistantCarePanel(
+                            mode = "recommendations",
+                            title = carePanelTitle(payload.optString("kind"), recommendations.size),
+                            message = payload.optString("message"),
+                            kind = payload.optString("kind"),
+                            recommendations = recommendations,
+                        )
+                    )
+                }
+            }
+
+            "care_booking_slots" -> {
+                val selected = payload.optJSONObject("selected")?.parseCareRecommendationCard()
+                val slots = payload.optJSONArray("slots").mapObjects { it.parseCareSlotOption() }
+                showCarePanel(
+                    AssistantCarePanel(
+                        mode = "bookingSlots",
+                        title = if (payload.optString("kind") == "lab") "Choose a lab slot" else "Choose an appointment",
+                        message = payload.optString("message"),
+                        kind = payload.optString("kind"),
+                        selected = selected,
+                        slots = slots,
+                    )
+                )
+            }
+
+            "care_order_review" -> {
+                val selected = payload.optJSONObject("selected")?.parseCareRecommendationCard()
+                showCarePanel(
+                    AssistantCarePanel(
+                        mode = "orderReview",
+                        title = if (payload.optString("kind") == "food") "Review meal order" else "Review order",
+                        message = payload.optString("message"),
+                        kind = payload.optString("kind"),
+                        selected = selected,
+                        fulfillment = payload.optString("fulfillment"),
+                        quantity = payload.optInt("quantity", 1),
+                        eta = payload.optString("eta"),
+                        totalPrice = payload.optDouble("totalPrice", 0.0),
+                    )
+                )
+            }
+
+            "care_activity_created" -> {
+                val activity = payload.optJSONObject("activity")?.parseCareActivityPayload()
+                if (activity != null) {
+                    _appState.update { state ->
+                        state.copy(careActivity = listOf(activity) + state.careActivity.filter { it.id != activity.id })
+                    }
+                    showCarePanel(
+                        AssistantCarePanel(
+                            mode = "confirmation",
+                            title = if (activity.kind == "food" || activity.kind == "product") "Order placed" else "Booking confirmed",
+                            message = payload.optString("message"),
+                            kind = activity.kind,
+                            activity = activity,
+                        )
+                    )
+                }
+            }
+
+            "care_activity_error" -> {
+                _uiState.update { it.copy(warning = payload.optString("message")) }
+            }
+
             "assistant_text", "transcript" -> {
                 val speaker = payload.optString("speaker")
                 val text = payload.optString("text", "")
@@ -334,6 +511,46 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                 } else {
                     _uiState.update { it.copy(warning = message) }
                 }
+            }
+
+            "activity_completion_error" -> {
+                _uiState.update { it.copy(warning = payload.optString("message")) }
+            }
+        }
+    }
+
+    private fun showActivityCards(cards: List<ActivityCard>) {
+        if (cards.isEmpty()) return
+        _uiState.update { it.copy(activityCards = cards.take(6), carePanel = null) }
+    }
+
+    private fun showCarePanel(panel: AssistantCarePanel) {
+        _uiState.update {
+            it.copy(
+                carePanel = panel,
+                activityCards = emptyList(),
+            )
+        }
+    }
+
+    private fun applyCompletedActivity(card: ActivityCard) {
+        _appState.update { state ->
+            when (card.kind) {
+                "schedule" -> state.copy(
+                    dashboard = state.dashboard.copy(
+                        todaysSchedule = state.dashboard.todaysSchedule.map { item ->
+                            if (item.id == card.id) item.withCompletion(card) else item
+                        },
+                    ),
+                )
+                "task" -> state.copy(
+                    journal = state.journal.copy(
+                        tasks = state.journal.tasks.map { task ->
+                            if (task.id == card.id) task.withCompletion(card) else task
+                        },
+                    ),
+                )
+                else -> state
             }
         }
     }
@@ -512,5 +729,101 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
 
     companion object {
         private const val MIN_CAPTURE_MS = 900L
+    }
+}
+
+private fun JSONObject.parseActivityCard(): ActivityCard =
+    ActivityCard(
+        id = optString("id"),
+        kind = optString("kind"),
+        title = optString("title"),
+        category = optString("category"),
+        status = optString("status"),
+        timeLabel = optString("timeLabel"),
+        supportingText = optString("supportingText"),
+        scheduledFor = optString("scheduledFor"),
+        completionNote = optString("completionNote"),
+        completedAt = optString("completedAt"),
+    )
+
+private fun JSONObject.parseCareRecommendationCard(): CareRecommendationCard =
+    CareRecommendationCard(
+        id = optString("id"),
+        kind = optString("kind"),
+        title = optString("title"),
+        provider = optString("provider"),
+        detail = optString("detail"),
+        price = optDouble("price"),
+        rating = optDouble("rating"),
+        image = optString("image"),
+        category = optString("category"),
+        offer = optString("offer"),
+        eta = optString("eta"),
+        isOnline = optBoolean("isOnline"),
+        reviews = optInt("reviews"),
+        location = optString("location"),
+        availability = optString("availability"),
+    )
+
+private fun JSONObject.parseCareSlotOption(): CareSlotOption =
+    CareSlotOption(
+        id = optString("id"),
+        date = optString("date"),
+        dayLabel = optString("dayLabel"),
+        time = optString("time"),
+        mode = optString("mode"),
+        scheduledFor = optString("scheduledFor"),
+    )
+
+private fun JSONObject.parseCareActivityPayload(): CareActivity =
+    CareActivity(
+        id = optString("id"),
+        kind = optString("kind"),
+        status = optString("status"),
+        title = optString("title"),
+        provider = optString("provider"),
+        scheduledFor = optString("scheduledFor"),
+        eta = optString("eta"),
+        price = optDouble("price"),
+        sourceItemId = optString("sourceItemId"),
+        createdAt = optString("createdAt"),
+        note = optString("note"),
+        slotId = optString("slotId"),
+        fulfillment = optString("fulfillment"),
+        quantity = optInt("quantity", 1),
+    )
+
+private fun carePanelTitle(kind: String, count: Int): String {
+    val label = when (kind) {
+        "doctor" -> "doctor"
+        "lab" -> "lab"
+        "food" -> "meal"
+        "product" -> "care"
+        else -> "care"
+    }
+    return "$count ${label} option${if (count == 1) "" else "s"}"
+}
+
+private fun DashboardScheduleItem.withCompletion(card: ActivityCard): DashboardScheduleItem =
+    copy(
+        status = card.status.ifBlank { status },
+        completionNote = card.completionNote,
+        completedAt = card.completedAt,
+    )
+
+private fun JournalTask.withCompletion(card: ActivityCard): JournalTask =
+    copy(
+        status = when (card.status) {
+            "pending" -> status
+            else -> card.status.ifBlank { status }
+        },
+        completionNote = card.completionNote,
+        completedAt = card.completedAt,
+    )
+
+private fun <T> JSONArray?.mapObjects(transform: (JSONObject) -> T): List<T> {
+    if (this == null) return emptyList()
+    return (0 until length()).mapNotNull { index ->
+        optJSONObject(index)?.let(transform)
     }
 }

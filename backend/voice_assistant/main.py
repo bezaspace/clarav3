@@ -95,6 +95,10 @@ class StopSessionMessage(BaseModel):
 class CreateCareActivityRequest(BaseModel):
     sourceItemId: str
     note: str | None = None
+    scheduledFor: str | None = None
+    slotId: str | None = None
+    fulfillment: str | None = None
+    quantity: int | None = None
 
 
 class CreateJournalEntryRequest(BaseModel):
@@ -222,7 +226,15 @@ async def get_care_activity(active_only: bool = False):
 @app.post("/api/care/orders")
 async def create_care_order(request: CreateCareActivityRequest):
     try:
-        return create_care_activity("product", request.sourceItemId, note=request.note)
+        return create_care_activity(
+            "product",
+            request.sourceItemId,
+            note=request.note,
+            scheduled_for=request.scheduledFor,
+            slot_id=request.slotId,
+            fulfillment=request.fulfillment,
+            quantity=request.quantity,
+        )
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -230,7 +242,15 @@ async def create_care_order(request: CreateCareActivityRequest):
 @app.post("/api/care/food-orders")
 async def create_care_food_order(request: CreateCareActivityRequest):
     try:
-        return create_care_activity("food", request.sourceItemId, note=request.note)
+        return create_care_activity(
+            "food",
+            request.sourceItemId,
+            note=request.note,
+            scheduled_for=request.scheduledFor,
+            slot_id=request.slotId,
+            fulfillment=request.fulfillment,
+            quantity=request.quantity,
+        )
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -238,7 +258,15 @@ async def create_care_food_order(request: CreateCareActivityRequest):
 @app.post("/api/care/bookings")
 async def create_care_booking(kind: Literal["doctor", "lab"], request: CreateCareActivityRequest):
     try:
-        return create_care_activity(kind, request.sourceItemId, note=request.note)
+        return create_care_activity(
+            kind,
+            request.sourceItemId,
+            note=request.note,
+            scheduled_for=request.scheduledFor,
+            slot_id=request.slotId,
+            fulfillment=request.fulfillment,
+            quantity=request.quantity,
+        )
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -488,6 +516,9 @@ def _extract_tool_payloads(event: object) -> list[dict[str, Any]]:
             "schedule_snapshot",
             "care_activity_confirmation_required",
             "care_activity_created",
+            "care_activity_error",
+            "care_booking_slots",
+            "care_order_review",
             "care_recommendations",
             "journal_confirmation_required",
             "journal_entry_created",
@@ -496,6 +527,8 @@ def _extract_tool_payloads(event: object) -> list[dict[str, Any]]:
             "journal_task_updated",
             "journal_task_deleted",
             "journal_error",
+            "activity_completion_logged",
+            "activity_completion_error",
         }:
             payloads.append(parsed)
     return payloads

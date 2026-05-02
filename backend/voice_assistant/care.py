@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -38,7 +39,7 @@ def load_care_activity(active_only: bool = False) -> list[dict[str, Any]]:
 def recommend_care_options(
     kind: str | None = None,
     query: str | None = None,
-    limit: int = 5,
+    limit: int = 4,
 ) -> list[dict[str, Any]]:
     kinds = _normalize_kinds(kind)
     query_terms = _query_terms(query)
@@ -65,6 +66,10 @@ def create_care_activity(
     kind: str,
     source_item_id: str,
     note: str | None = None,
+    scheduled_for: str | None = None,
+    slot_id: str | None = None,
+    fulfillment: str | None = None,
+    quantity: int | None = None,
 ) -> dict[str, Any]:
     normalized_kind = _normalize_kind(kind)
     item = find_care_catalog_item(normalized_kind, source_item_id)
@@ -79,6 +84,10 @@ def create_care_activity(
         created_at=created_at,
         note=note,
         sequence=len(existing) + 1,
+        scheduled_for=scheduled_for,
+        slot_id=slot_id,
+        fulfillment=fulfillment,
+        quantity=quantity,
     )
     save_sections({CARE_ACTIVITY_SECTION: [record, *existing]})
     return record
@@ -124,12 +133,47 @@ def build_care_tool_response(
     source_item_id: str | None = None,
     confirmed: bool = False,
     note: str | None = None,
+    slot_id: str | None = None,
+    scheduled_for: str | None = None,
+    fulfillment: str | None = None,
+    quantity: int | None = None,
 ) -> dict[str, Any]:
     normalized_action = str(action or "recommend").strip().lower()
     normalized_kind = _normalize_kind(kind) if kind else None
 
+    if normalized_action in {"select", "slots", "slot"}:
+        if not normalized_kind or not source_item_id:
+            return {
+                "type": "care_activity_error",
+                "status": "error",
+                "message": "Please choose a care option first.",
+            }
+        if normalized_kind in {"doctor", "lab"}:
+            return build_booking_slots_response(
+                kind=normalized_kind,
+                source_item_id=source_item_id,
+            )
+        return build_order_review_response(
+            kind=normalized_kind,
+            source_item_id=source_item_id,
+            fulfillment=fulfillment,
+            quantity=quantity,
+        )
+
     if normalized_action in {"create", "order", "book"}:
         if not confirmed:
+            if normalized_kind and source_item_id:
+                if normalized_kind in {"doctor", "lab"}:
+                    return build_booking_slots_response(
+                        kind=normalized_kind,
+                        source_item_id=source_item_id,
+                    )
+                return build_order_review_response(
+                    kind=normalized_kind,
+                    source_item_id=source_item_id,
+                    fulfillment=fulfillment,
+                    quantity=quantity,
+                )
             recommendations = recommend_care_options(normalized_kind, query or source_item_id)
             return {
                 "type": "care_activity_confirmation_required",
@@ -145,7 +189,20 @@ def build_care_tool_response(
                 "message": "A care item type and item id are required to create an order or booking.",
             }
         try:
-            activity = create_care_activity(normalized_kind, source_item_id, note=note)
+            resolved_scheduled_for = scheduled_for or _scheduled_for_slot(
+                normalized_kind,
+                source_item_id,
+                slot_id,
+            )
+            activity = create_care_activity(
+                normalized_kind,
+                source_item_id,
+                note=note,
+                scheduled_for=resolved_scheduled_for,
+                slot_id=slot_id,
+                fulfillment=fulfillment,
+                quantity=quantity,
+            )
         except ValueError as error:
             return {
                 "type": "care_activity_error",
@@ -167,6 +224,78 @@ def build_care_tool_response(
         "kind": normalized_kind,
         "query": query or "",
         "recommendations": recommendations,
+    }
+
+
+def build_booking_slots_response(
+    *,
+    kind: str,
+    source_item_id: str,
+) -> dict[str, Any]:
+    normalized_kind = _normalize_kind(kind)
+    if normalized_kind not in {"doctor", "lab"}:
+        return {
+            "type": "care_activity_error",
+            "status": "error",
+            "message": "Slots are only available for doctors and labs.",
+        }
+    item = find_care_catalog_item(normalized_kind, source_item_id)
+    if item is None:
+        return {
+            "type": "care_activity_error",
+            "status": "error",
+            "message": f"Unknown {normalized_kind} item: {source_item_id}",
+        }
+    slots = _build_slot_options(normalized_kind, item)
+    return {
+        "type": "care_booking_slots",
+        "status": "confirmation_required",
+        "message": f"Choose a slot for {item.get('name', 'this care option')}.",
+        "kind": normalized_kind,
+        "selected": _serialize_recommendation(normalized_kind, item),
+        "slots": slots,
+    }
+
+
+def build_order_review_response(
+    *,
+    kind: str,
+    source_item_id: str,
+    fulfillment: str | None = None,
+    quantity: int | None = None,
+) -> dict[str, Any]:
+    normalized_kind = _normalize_kind(kind)
+    if normalized_kind not in {"product", "food"}:
+        return {
+            "type": "care_activity_error",
+            "status": "error",
+            "message": "Order review is only available for products and food.",
+        }
+    item = find_care_catalog_item(normalized_kind, source_item_id)
+    if item is None:
+        return {
+            "type": "care_activity_error",
+            "status": "error",
+            "message": f"Unknown {normalized_kind} item: {source_item_id}",
+        }
+    selected = _serialize_recommendation(normalized_kind, item)
+    resolved_quantity = _quantity_value(quantity)
+    resolved_fulfillment = _clean_text(fulfillment) or (
+        "Deliver now" if normalized_kind == "food" else "Home delivery"
+    )
+    eta = selected.get("eta") or selected.get("detail") or "Today"
+    price = _number_value(item.get("price"))
+    total_price = price * resolved_quantity
+    return {
+        "type": "care_order_review",
+        "status": "confirmation_required",
+        "message": f"Confirm {selected['title']} before I place the order.",
+        "kind": normalized_kind,
+        "selected": selected,
+        "fulfillment": resolved_fulfillment,
+        "quantity": resolved_quantity,
+        "eta": eta,
+        "totalPrice": total_price,
     }
 
 
@@ -194,6 +323,11 @@ def _normalize_kind(kind: str | None) -> str:
         "shopping": "product",
         "grocery": "product",
         "groceries": "product",
+        "medicine": "product",
+        "medication": "product",
+        "pharmacy": "product",
+        "supplement": "product",
+        "supplements": "product",
         "product_order": "product",
         "food_delivery": "food",
         "meal": "food",
@@ -243,10 +377,12 @@ def _score_catalog_item(item: dict[str, Any], query_terms: list[str]) -> int:
             "offer",
         ]
     ).lower()
+    query_text = " ".join(query_terms)
     score = 0
     for term in query_terms:
         if term in searchable:
             score += 10
+    score += _specialty_query_score(searchable, query_text)
     if item.get("isOnline"):
         score += 2
     if item.get("veg"):
@@ -281,26 +417,38 @@ def _build_activity_record(
     created_at: str,
     note: str | None,
     sequence: int,
+    scheduled_for: str | None,
+    slot_id: str | None,
+    fulfillment: str | None,
+    quantity: int | None,
 ) -> dict[str, Any]:
     activity_id = f"care-{int(datetime.now(LOCAL_TIMEZONE).timestamp())}-{sequence}"
     title = str(item.get("name", "Care activity"))
     provider = str(item.get("restaurant") or item.get("specialty") or item.get("category") or "")
-    status = "ordered" if kind in {"product", "food"} else "confirmed"
+    status = "ordered" if kind in {"product", "food"} else "scheduled"
     eta = str(item.get("time", "")) if kind == "food" else ""
-    scheduled_for = str(item.get("availability", "")) if kind in {"doctor", "lab"} else ""
-    return {
+    resolved_scheduled_for = (
+        _clean_text(scheduled_for)
+        or (str(item.get("availability", "")) if kind in {"doctor", "lab"} else "")
+    )
+    resolved_quantity = _quantity_value(quantity) if kind in {"product", "food"} else 1
+    record = {
         "id": activity_id,
         "kind": kind,
         "status": status,
         "title": title,
         "provider": provider,
-        "scheduledFor": scheduled_for,
+        "scheduledFor": resolved_scheduled_for,
         "eta": eta,
         "price": _number_value(item.get("price")),
         "sourceItemId": str(item.get("id", "")),
         "createdAt": created_at,
         "note": str(note or "").strip(),
+        "slotId": _clean_text(slot_id),
+        "fulfillment": _clean_text(fulfillment),
+        "quantity": resolved_quantity,
     }
+    return record
 
 
 def _activity_message(activity: dict[str, Any]) -> str:
@@ -330,3 +478,121 @@ def _number_value(value: Any) -> int | float:
     if parsed.is_integer():
         return int(parsed)
     return parsed
+
+
+def _quantity_value(value: Any) -> int:
+    try:
+        parsed = int(value or 1)
+    except (TypeError, ValueError):
+        return 1
+    return max(1, parsed)
+
+
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _specialty_query_score(searchable: str, query_text: str) -> int:
+    boosts = {
+        ("bloat", "bloating", "stomach", "gut", "gas", "acid", "digestion", "digestive"): [
+            "gastro",
+            "general physician",
+            "ayur",
+        ],
+        ("stress", "anxiety", "panic", "sleep", "mood", "depress", "therapy"): [
+            "psychi",
+            "psycholog",
+            "mind",
+        ],
+        ("heart", "chest", "bp", "blood pressure", "cardio"): [
+            "cardio",
+            "general physician",
+        ],
+        ("sugar", "diabetes", "thyroid", "hormone", "metabolic"): [
+            "endocr",
+            "thyroid",
+            "hormone",
+            "full body",
+            "biomarker",
+        ],
+        ("skin", "rash", "acne", "hair"): ["dermat"],
+        ("knee", "joint", "back", "sprain", "bone"): ["ortho"],
+        ("vitamin", "deficiency", "blood test", "lab", "checkup"): [
+            "vitamin",
+            "full body",
+            "pathology",
+            "diagnostic",
+        ],
+    }
+    score = 0
+    for triggers, needles in boosts.items():
+        if any(trigger in query_text for trigger in triggers):
+            if any(needle in searchable for needle in needles):
+                score += 12
+    return score
+
+
+def _build_slot_options(kind: str, item: dict[str, Any]) -> list[dict[str, Any]]:
+    now = datetime.now(LOCAL_TIMEZONE)
+    start_date = _availability_start_date(str(item.get("availability", "")), now)
+    times = (
+        ["09:00 AM", "10:30 AM", "02:00 PM", "04:30 PM", "06:00 PM"]
+        if kind == "doctor"
+        else ["07:00 AM", "08:30 AM", "10:00 AM", "05:00 PM"]
+    )
+    mode = _slot_mode(kind, item)
+    slots = []
+    for day_offset in range(3):
+        slot_date = start_date + timedelta(days=day_offset)
+        for time_index, time_label in enumerate(times[:2] if day_offset else times[:3]):
+            slot_id = f"{kind}-{item.get('id', 'item')}-{slot_date:%Y%m%d}-{time_index}"
+            scheduled_for = f"{slot_date:%a, %d %b} at {time_label}"
+            slots.append(
+                {
+                    "id": slot_id,
+                    "date": slot_date.isoformat(),
+                    "dayLabel": slot_date.strftime("%a, %d %b"),
+                    "time": time_label,
+                    "mode": mode,
+                    "scheduledFor": scheduled_for,
+                }
+            )
+            if len(slots) >= 5:
+                return slots
+    return slots
+
+
+def _availability_start_date(value: str, now: datetime) -> datetime.date:
+    normalized = value.strip().lower()
+    if "tomorrow" in normalized:
+        return (now + timedelta(days=1)).date()
+    if any(token in normalized for token in ["home", "today", "walk", "appointment", "advanced"]):
+        return now.date()
+    try:
+        parsed = datetime.strptime(value.strip(), "%d %b")
+        return now.replace(month=parsed.month, day=parsed.day).date()
+    except ValueError:
+        return now.date()
+
+
+def _slot_mode(kind: str, item: dict[str, Any]) -> str:
+    if kind == "lab":
+        availability = str(item.get("availability", "")).lower()
+        return "Home collection" if "home" in availability else "Walk in"
+    return "Video call" if item.get("isOnline") else "Clinic visit"
+
+
+def _scheduled_for_slot(
+    kind: str,
+    source_item_id: str,
+    slot_id: str | None,
+) -> str:
+    if not slot_id or kind not in {"doctor", "lab"}:
+        return ""
+    item = find_care_catalog_item(kind, source_item_id)
+    if item is None:
+        return ""
+    for slot in _build_slot_options(kind, item):
+        if slot.get("id") == slot_id:
+            return str(slot.get("scheduledFor", ""))
+    return ""

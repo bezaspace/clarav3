@@ -12,6 +12,7 @@ else:
     ToolContext = Any
 
 from voice_assistant.db import get_section
+from voice_assistant.activity_completion import complete_activity
 from voice_assistant.care import build_care_tool_response
 from voice_assistant.journal import build_journal_tool_response
 
@@ -20,6 +21,9 @@ LOCAL_TIMEZONE = ZoneInfo("Asia/Kolkata")
 TIME_FORMAT = "%I:%M %p"
 SCHEDULE_TIMEZONE_STATE_KEY = "app:schedule_timezone"
 SCHEDULE_SUMMARY_STATE_KEY = "app:schedule_summary"
+LAST_ACTIVITY_CARD_STATE_KEY = "app:last_activity_card"
+LAST_CARE_RECOMMENDATIONS_STATE_KEY = "app:last_care_recommendations"
+LAST_CARE_SELECTION_STATE_KEY = "app:last_care_selection"
 logger = logging.getLogger("voice_assistant.tools")
 
 
@@ -30,6 +34,10 @@ def manage_care_services(
     source_item_id: str | None = None,
     confirmed: bool = False,
     note: str | None = None,
+    slot_id: str | None = None,
+    scheduled_for: str | None = None,
+    fulfillment: str | None = None,
+    quantity: int | None = None,
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Recommends or creates Care shop orders, food orders, doctor bookings, and lab bookings.
@@ -39,20 +47,42 @@ def manage_care_services(
     or booking a lab test from the Care page.
 
     For recommendations, use action="recommend" and include kind and query when
-    known. For creating an order or booking, use action="create", the item kind,
-    the source item id from recommendations or catalog data, and confirmed=true.
-    Never create an order or booking unless the user has clearly confirmed it.
+    known. Use action="select" or action="slots" after the user chooses an
+    option by name, id, or ordinal phrase like "the second one". For creating an
+    order or booking, use action="create", the item kind, the source item id
+    from recommendations or catalog data, and confirmed=true. Never create an
+    order or booking unless the user has clearly confirmed it.
     """
 
-    del tool_context
-    return build_care_tool_response(
-        action=action,
-        kind=kind,
+    normalized_action = str(action or "recommend").strip().lower()
+    resolved_kind = kind
+    resolved_source_item_id = _clean_string(source_item_id)
+
+    if normalized_action in {"select", "slots", "slot", "create", "order", "book"}:
+        selected = _resolve_care_selection(
+            tool_context=tool_context,
+            kind=resolved_kind,
+            query=query,
+            source_item_id=resolved_source_item_id,
+        )
+        if selected:
+            resolved_kind = str(selected.get("kind") or resolved_kind or "")
+            resolved_source_item_id = str(selected.get("id") or resolved_source_item_id)
+
+    response = build_care_tool_response(
+        action=normalized_action,
+        kind=resolved_kind,
         query=query,
-        source_item_id=source_item_id,
+        source_item_id=resolved_source_item_id or None,
         confirmed=confirmed,
         note=note,
+        slot_id=slot_id,
+        scheduled_for=scheduled_for,
+        fulfillment=fulfillment,
+        quantity=quantity,
     )
+    _remember_care_response(tool_context, response)
+    return response
 
 
 def manage_journal(
@@ -184,6 +214,53 @@ def get_health_snapshot(
     return result
 
 
+def log_activity_completion(
+    item_kind: str | None = None,
+    item_id: str | None = None,
+    completion_note: str | None = None,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
+    """Marks a surfaced schedule activity or journal task complete with a clinical note.
+
+    Use this tool only after the user says the activity/task is done and you have
+    asked up to three activity-specific follow-up questions. The completion_note
+    should be a concise freeform note, like a nurse or doctor would write, based
+    on the user's answers. If item_kind or item_id is missing, use the most
+    recently surfaced activity card from session state when available.
+    """
+
+    state_card = _get_last_activity_card(tool_context)
+    resolved_kind = _clean_string(item_kind) or str(state_card.get("kind", "")).strip()
+    resolved_id = _clean_string(item_id) or str(state_card.get("id", "")).strip()
+    resolved_note = _clean_string(completion_note)
+
+    try:
+        result = complete_activity(
+            item_kind=resolved_kind,
+            item_id=resolved_id,
+            completion_note=resolved_note,
+        )
+    except ValueError as error:
+        return {
+            "type": "activity_completion_error",
+            "status": "error",
+            "message": str(error),
+        }
+
+    if result["kind"] == "schedule":
+        activity_card = _serialize_schedule_item(result["item"])
+    else:
+        activity_card = _serialize_task_item(result["item"])
+    _remember_activity_card(tool_context, activity_card)
+
+    return {
+        "type": "activity_completion_logged",
+        "status": "success",
+        "message": f"Logged {activity_card['title']} as completed.",
+        "activityCard": activity_card,
+    }
+
+
 def get_current_schedule_item(
     timezone: str | None = None,
     now_iso: str | None = None,
@@ -226,6 +303,8 @@ def get_current_schedule_item(
 
     if selected_card is None and pending_tasks:
         selected_card = _serialize_task_item(pending_tasks[0])
+
+    _remember_activity_card(tool_context, selected_card)
 
     if overdue_item is not None:
         message = (
@@ -297,6 +376,17 @@ def get_today_schedule(
     schedule_cards = [_serialize_schedule_item(item) for item in schedule]
     pending_tasks = _pending_tasks(journal_tasks)
     pending_task_cards = [_serialize_task_item(task) for task in pending_tasks]
+    _remember_activity_card(
+        tool_context,
+        next(
+            (
+                item
+                for item in schedule_cards + pending_task_cards
+                if item and item.get("status") != "completed"
+            ),
+            None,
+        ),
+    )
 
     completed_count = sum(
         1
@@ -346,6 +436,172 @@ def _load_schedule_data(
     )
     now = _resolve_now(resolved_timezone, date=date, now_iso=now_iso)
     return schedule, journal_tasks, now
+
+
+def _remember_activity_card(
+    tool_context: ToolContext | None,
+    activity_card: dict[str, Any] | None,
+) -> None:
+    if tool_context is None or not activity_card:
+        return
+    tool_context.state[LAST_ACTIVITY_CARD_STATE_KEY] = activity_card
+
+
+def _get_last_activity_card(tool_context: ToolContext | None) -> dict[str, Any]:
+    if tool_context is None:
+        return {}
+    value = tool_context.state.get(LAST_ACTIVITY_CARD_STATE_KEY)
+    return value if isinstance(value, dict) else {}
+
+
+def _remember_care_response(
+    tool_context: ToolContext | None,
+    response: dict[str, Any],
+) -> None:
+    if tool_context is None:
+        return
+    recommendations = response.get("recommendations")
+    if isinstance(recommendations, list):
+        tool_context.state[LAST_CARE_RECOMMENDATIONS_STATE_KEY] = recommendations
+    selected = response.get("selected")
+    if isinstance(selected, dict):
+        tool_context.state[LAST_CARE_SELECTION_STATE_KEY] = selected
+    activity = response.get("activity")
+    if isinstance(activity, dict):
+        tool_context.state[LAST_CARE_SELECTION_STATE_KEY] = {
+            "id": activity.get("sourceItemId", ""),
+            "kind": activity.get("kind", ""),
+            "title": activity.get("title", ""),
+        }
+
+
+def _resolve_care_selection(
+    *,
+    tool_context: ToolContext | None,
+    kind: str | None,
+    query: str | None,
+    source_item_id: str | None,
+) -> dict[str, Any]:
+    state_selection = _get_last_care_selection(tool_context)
+    if source_item_id:
+        remembered = _find_remembered_care_option(
+            tool_context=tool_context,
+            kind=kind,
+            predicate=lambda item: str(item.get("id", "")).strip() == source_item_id,
+        )
+        return remembered or {"id": source_item_id, "kind": kind or state_selection.get("kind", "")}
+
+    query_text = _clean_string(query).lower()
+    if not query_text:
+        return state_selection
+
+    ordinal_index = _selection_ordinal_index(query_text)
+    if ordinal_index is not None:
+        remembered = _remembered_care_options(tool_context, kind=kind)
+        if 0 <= ordinal_index < len(remembered):
+            return remembered[ordinal_index]
+
+    query_terms = [term for term in query_text.replace(",", " ").split() if len(term) >= 2]
+    if not query_terms:
+        return state_selection
+
+    remembered = _find_remembered_care_option(
+        tool_context=tool_context,
+        kind=kind,
+        predicate=lambda item: all(
+            term in " ".join(
+                str(item.get(key, ""))
+                for key in ["id", "title", "provider", "category", "detail", "location"]
+            ).lower()
+            for term in query_terms
+        ),
+    )
+    return remembered or state_selection
+
+
+def _get_last_care_selection(tool_context: ToolContext | None) -> dict[str, Any]:
+    if tool_context is None:
+        return {}
+    value = tool_context.state.get(LAST_CARE_SELECTION_STATE_KEY)
+    return value if isinstance(value, dict) else {}
+
+
+def _remembered_care_options(
+    tool_context: ToolContext | None,
+    *,
+    kind: str | None,
+) -> list[dict[str, Any]]:
+    if tool_context is None:
+        return []
+    value = tool_context.state.get(LAST_CARE_RECOMMENDATIONS_STATE_KEY)
+    if not isinstance(value, list):
+        return []
+    options = [item for item in value if isinstance(item, dict)]
+    if not kind:
+        return options
+    normalized_kind = _normalize_care_kind_hint(kind)
+    return [
+        item
+        for item in options
+        if str(item.get("kind", "")).strip().lower() in {normalized_kind, ""}
+    ]
+
+
+def _find_remembered_care_option(
+    *,
+    tool_context: ToolContext | None,
+    kind: str | None,
+    predicate: Any,
+) -> dict[str, Any]:
+    for item in _remembered_care_options(tool_context, kind=kind):
+        if predicate(item):
+            return item
+    return {}
+
+
+def _selection_ordinal_index(query_text: str) -> int | None:
+    ordinal_words = {
+        "first": 0,
+        "1st": 0,
+        "second": 1,
+        "2nd": 1,
+        "third": 2,
+        "3rd": 2,
+        "fourth": 3,
+        "4th": 3,
+    }
+    for word, index in ordinal_words.items():
+        if word in query_text.split():
+            return index
+    for token in query_text.replace("#", " ").split():
+        if token.isdigit():
+            value = int(token)
+            if value > 0:
+                return value - 1
+    return None
+
+
+def _normalize_care_kind_hint(kind: str | None) -> str:
+    normalized = _clean_string(kind).lower()
+    aliases = {
+        "shop": "product",
+        "shopping": "product",
+        "grocery": "product",
+        "groceries": "product",
+        "medicine": "product",
+        "medication": "product",
+        "pharmacy": "product",
+        "supplement": "product",
+        "supplements": "product",
+        "meal": "food",
+        "food_delivery": "food",
+        "appointment": "doctor",
+        "doctor_booking": "doctor",
+        "test": "lab",
+        "lab_test": "lab",
+        "lab_booking": "lab",
+    }
+    return aliases.get(normalized, normalized)
 
 
 def _load_mapping_section(
@@ -482,7 +738,7 @@ def _serialize_schedule_item(item: dict[str, Any] | None) -> dict[str, Any] | No
     duration = str(item.get("duration", "")).strip()
     time_label = str(item.get("time", "")).strip()
     supporting_parts = [part for part in [duration, time_label] if part]
-    return {
+    card = {
         "id": str(item.get("id", "")),
         "kind": "schedule",
         "title": str(item.get("title", "Untitled activity")),
@@ -492,6 +748,8 @@ def _serialize_schedule_item(item: dict[str, Any] | None) -> dict[str, Any] | No
         "supportingText": " · ".join(supporting_parts) or "Scheduled activity",
         "scheduledFor": time_label or None,
     }
+    _copy_optional_text_fields(item, card, ["completionNote", "completedAt"])
+    return card
 
 
 def _serialize_task_item(task: dict[str, Any]) -> dict[str, Any]:
@@ -502,7 +760,7 @@ def _serialize_task_item(task: dict[str, Any]) -> dict[str, Any]:
         f"{priority.title()} priority" if priority else "",
         f"Due {due_date}" if due_date else "",
     ]
-    return {
+    card = {
         "id": str(task.get("id", "")),
         "kind": "task",
         "title": str(task.get("title", "Untitled task")),
@@ -512,6 +770,23 @@ def _serialize_task_item(task: dict[str, Any]) -> dict[str, Any]:
         "supportingText": " · ".join(part for part in supporting_parts if part) or "Open task",
         "scheduledFor": due_date or None,
     }
+    _copy_optional_text_fields(task, card, ["completionNote", "completedAt"])
+    return card
+
+
+def _copy_optional_text_fields(
+    source: dict[str, Any],
+    target: dict[str, Any],
+    fields: list[str],
+) -> None:
+    for field in fields:
+        value = _clean_string(source.get(field))
+        if value:
+            target[field] = value
+
+
+def _clean_string(value: Any) -> str:
+    return str(value or "").strip()
 
 
 def _normalize_schedule_status(value: Any) -> str:

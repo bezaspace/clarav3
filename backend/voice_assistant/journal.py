@@ -129,6 +129,8 @@ def update_journal_task(
     priority: str | None = None,
     category: str | None = None,
     due_date: str | None = None,
+    completion_note: str | None = None,
+    completed_at: str | None = None,
 ) -> dict[str, Any]:
     normalized_id = _required_text(task_id, "A task id is required.")
     tasks = load_journal_tasks()
@@ -150,6 +152,14 @@ def update_journal_task(
             updated_task["category"] = _clean_text(category) or "Mind"
         if due_date is not None:
             updated_task["dueDate"] = _clean_text(due_date) or "Today"
+        if completion_note is not None:
+            note = _clean_text(completion_note)
+            if note:
+                updated_task["completionNote"] = note
+        if completed_at is not None:
+            timestamp = _clean_text(completed_at)
+            if timestamp:
+                updated_task["completedAt"] = timestamp
         updated_task["updatedAt"] = datetime.now(LOCAL_TIMEZONE).isoformat()
         updated_tasks.append(updated_task)
 
@@ -503,6 +513,10 @@ def _normalize_task(task: dict[str, Any]) -> dict[str, Any]:
         value = _clean_text(task.get(key))
         if value:
             normalized[key] = _normalize_source(value) if key == "source" else value
+    for key in ["completionNote", "completedAt"]:
+        value = _clean_text(task.get(key))
+        if value:
+            normalized[key] = value
     return normalized
 
 

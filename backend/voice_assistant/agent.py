@@ -7,6 +7,7 @@ from google.genai import types
 from voice_assistant.tools import get_current_schedule_item
 from voice_assistant.tools import get_health_snapshot
 from voice_assistant.tools import get_today_schedule
+from voice_assistant.tools import log_activity_completion
 from voice_assistant.tools import manage_care_services
 from voice_assistant.tools import manage_journal
 
@@ -72,6 +73,16 @@ def _build_instruction(schedule_summary: str | None = None) -> str:
         "If the user asks for pending items or a full plan, use get_today_schedule and not get_current_schedule_item. "
         "After the tool returns, speak naturally in one or two short sentences. "
         "The tool response already contains typed UI data, so do not narrate raw JSON or implementation details. "
+        "ACTIVITY COMPLETION RULES (CRITICAL): "
+        "When the user says they completed the current, next, or previously surfaced schedule activity or task, "
+        "do not immediately mark it done. First ask a brief follow-up like a nurse or doctor checking how it went. "
+        "Ask no more than three follow-up questions total, tailored to the activity category: for Diet ask about what/amount/tolerance, "
+        "for Medicine ask whether it was taken as planned and any side effects, for Body ask intensity/discomfort/recovery, "
+        "and for Mind ask mood, focus, and difficulty. "
+        "After you have enough detail, call log_activity_completion with a concise freeform completion_note. "
+        "The note should read like a clinical care note, but must not diagnose. "
+        "If the user reports severe dizziness, chest pain, fainting, severe breathlessness, or neurological symptoms, "
+        "advise urgent medical care and still only log completion if appropriate. "
         "HEALTH SNAPSHOT TOOL RULES (CRITICAL): "
         "Whenever the user asks about their health picture, progress, biomarkers, optimization, targets, "
         "diet metrics, medication adherence, mental health metrics, workout metrics, allergies, sensitivities, "
@@ -85,6 +96,14 @@ def _build_instruction(schedule_summary: str | None = None) -> str:
         "When the user needs to buy groceries or health products, order food, find doctors, book doctor appointments, "
         "find labs, or book lab tests from Care, use manage_care_services. "
         "Use action='recommend' first unless the user has already chosen a specific item. "
+        "When the user chooses one of the visible options by name or phrase such as 'the second one', call "
+        "manage_care_services with action='select' or action='slots' so the UI can show only the next needed choices. "
+        "For doctor and lab bookings, ask the user to pick one of the surfaced slots, then call action='create' "
+        "with confirmed=true and the chosen slot_id or scheduled_for. "
+        "For food, grocery, medication, pharmacy, and health-product orders, surface the order review first, "
+        "then call action='create' with confirmed=true only after the user clearly confirms. "
+        "Ask one missing decision at a time. Do not dump catalog details in speech because the tool response "
+        "already contains focused UI cards. "
         "You MUST NOT create an order or booking unless the user clearly confirms the specific option. "
         "If confirmation is missing, ask a short confirmation question. "
         "For symptoms such as bloating, suggest relevant Care doctors or labs without diagnosing. "
@@ -119,6 +138,7 @@ def create_voice_assistant_agent(
         tools=tools or [
             get_current_schedule_item,
             get_today_schedule,
+            log_activity_completion,
             get_health_snapshot,
             manage_care_services,
             manage_journal,

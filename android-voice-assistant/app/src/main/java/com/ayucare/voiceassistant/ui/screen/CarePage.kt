@@ -57,6 +57,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ayucare.voiceassistant.data.AppUiState
+import com.ayucare.voiceassistant.data.FoodItem
+import com.ayucare.voiceassistant.data.Product
+import com.ayucare.voiceassistant.data.Professional
 import com.ayucare.voiceassistant.ui.theme.WellnessBlue
 import com.ayucare.voiceassistant.ui.theme.WellnessLavender
 import com.ayucare.voiceassistant.ui.theme.WellnessMustard
@@ -92,6 +96,8 @@ private data class CareCatalogItem(
     val tag: String = "",
     val icon: ImageVector,
     val accent: Color,
+    val id: String = "",
+    val kind: String = "",
 )
 
 private data class AppointmentDate(
@@ -100,7 +106,11 @@ private data class AppointmentDate(
 )
 
 @Composable
-fun CarePage(modifier: Modifier = Modifier) {
+fun CarePage(
+    appState: AppUiState,
+    onCreateActivity: (kind: String, sourceItemId: String, note: String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val lanes = remember {
         listOf(
             CareLane("Pharmacy", "Search medicines, supplements...", Icons.Outlined.LocalHospital, WellnessSage),
@@ -113,8 +123,11 @@ fun CarePage(modifier: Modifier = Modifier) {
     var selectedLane by remember { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }
     var selectedItem by remember { mutableStateOf<CareCatalogItem?>(null) }
+    var notice by remember { mutableStateOf("") }
     val lane = lanes[selectedLane]
-    val mode = remember(selectedLane) { careModeFor(lane.label, lane.accent, lane.icon) }
+    val mode = remember(selectedLane, appState.careProducts, appState.careProfessionals, appState.careFood) {
+        careModeFor(lane.label, lane.accent, lane.icon, appState)
+    }
     var selectedFilter by remember(selectedLane) { mutableIntStateOf(0) }
     val activeFilter = mode.filters[selectedFilter]
     val visibleItems = remember(mode, activeFilter, query) {
@@ -123,6 +136,15 @@ fun CarePage(modifier: Modifier = Modifier) {
             val searchable = "${item.name} ${item.provider} ${item.category} ${item.detail}".lowercase()
             matchesFilter && query.trim().lowercase().split(" ").filter { it.isNotBlank() }.all { it in searchable }
         }
+    }
+    fun submitActivity(item: CareCatalogItem, fallbackKind: String, action: String) {
+        if (item.id.isBlank()) {
+            notice = "This item is not connected to a backend id yet."
+            return
+        }
+        onCreateActivity(item.kind.ifBlank { fallbackKind }, item.id, "$action from Android")
+        notice = "${item.name} $action."
+        selectedItem = null
     }
 
     Box(
@@ -149,22 +171,26 @@ fun CarePage(modifier: Modifier = Modifier) {
                 "Doctor" -> DoctorAppointmentPage(
                     doctor = item,
                     onBack = { selectedItem = null },
+                    onConfirm = { submitActivity(item, "doctor", "booked") },
                     modifier = detailModifier,
                 )
                 "Lab Tests" -> LabTestBookingPage(
                     test = item,
                     onBack = { selectedItem = null },
+                    onConfirm = { submitActivity(item, "lab", "booked") },
                     modifier = detailModifier,
                 )
                 "Food" -> FoodOrderPage(
                     meal = item,
                     onBack = { selectedItem = null },
+                    onConfirm = { submitActivity(item, "food", "ordered") },
                     modifier = detailModifier,
                 )
                 else -> ProductDetailPage(
                     item = item,
                     section = lane.label,
                     onBack = { selectedItem = null },
+                    onConfirm = { submitActivity(item, "product", "ordered") },
                     modifier = detailModifier,
                 )
             }
@@ -177,6 +203,21 @@ fun CarePage(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             CareTopBar(itemCount = visibleItems.size, bookingMode = mode.bookingMode)
+            if (notice.isNotBlank()) {
+                Text(
+                    text = notice,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.White.copy(alpha = 0.72f))
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = CareInk,
+                )
+            }
             CareSearchField(
                 value = query,
                 hint = lane.searchHint,
@@ -806,6 +847,7 @@ private fun ProductDetailPage(
     item: CareCatalogItem,
     section: String,
     onBack: () -> Unit,
+    onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val deliveryOptions = remember(section) {
@@ -860,7 +902,7 @@ private fun ProductDetailPage(
                 )
             }
         }
-        PrimaryCareButton(text = "Add to Cart - ${item.price}")
+        PrimaryCareButton(text = "Add to Cart - ${item.price}", onClick = onConfirm)
     }
 }
 
@@ -868,6 +910,7 @@ private fun ProductDetailPage(
 private fun FoodOrderPage(
     meal: CareCatalogItem,
     onBack: () -> Unit,
+    onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val portions = remember { listOf("Regular", "High Protein", "Light") }
@@ -925,7 +968,7 @@ private fun FoodOrderPage(
                 )
             }
         }
-        PrimaryCareButton(text = "Add Meal - ${meal.price}")
+        PrimaryCareButton(text = "Add Meal - ${meal.price}", onClick = onConfirm)
     }
 }
 
@@ -933,6 +976,7 @@ private fun FoodOrderPage(
 private fun LabTestBookingPage(
     test: CareCatalogItem,
     onBack: () -> Unit,
+    onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dates = remember {
@@ -1018,7 +1062,7 @@ private fun LabTestBookingPage(
                 )
             }
         }
-        PrimaryCareButton(text = "Confirm Test Booking")
+        PrimaryCareButton(text = "Confirm Test Booking", onClick = onConfirm)
     }
 }
 
@@ -1176,13 +1220,14 @@ private fun QuantityButton(text: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PrimaryCareButton(text: String) {
+private fun PrimaryCareButton(text: String, onClick: (() -> Unit)? = null) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp)
             .shadow(10.dp, RoundedCornerShape(17.dp), spotColor = WellnessMustard.copy(alpha = 0.32f))
             .clip(RoundedCornerShape(17.dp))
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .background(WellnessMustard),
         contentAlignment = Alignment.Center,
     ) {
@@ -1201,6 +1246,7 @@ private fun PrimaryCareButton(text: String) {
 private fun DoctorAppointmentPage(
     doctor: CareCatalogItem,
     onBack: () -> Unit,
+    onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dates = remember {
@@ -1313,6 +1359,7 @@ private fun DoctorAppointmentPage(
                 .height(56.dp)
                 .shadow(10.dp, RoundedCornerShape(17.dp), spotColor = WellnessMustard.copy(alpha = 0.32f))
                 .clip(RoundedCornerShape(17.dp))
+                .clickable { onConfirm() }
                 .background(WellnessMustard),
             contentAlignment = Alignment.Center,
         ) {
@@ -1613,7 +1660,7 @@ private fun CareSectionHeader(title: String, action: String) {
     }
 }
 
-private fun careModeFor(label: String, accent: Color, icon: ImageVector): CareMode = when (label) {
+private fun careModeFor(label: String, accent: Color, icon: ImageVector, appState: AppUiState): CareMode = when (label) {
     "Food" -> CareMode(
         title = "Order wellness-first meals",
         subtitle = "Balanced bowls, sattvic thalis, smoothies, and high-protein options.",
@@ -1622,14 +1669,14 @@ private fun careModeFor(label: String, accent: Color, icon: ImageVector): CareMo
         accent = accent,
         icon = icon,
         bookingMode = false,
-        items = listOf(
+        items = appState.careFood.map { it.toCareCatalogItem(accent) }.ifEmpty { listOf(
             CareCatalogItem("Quinoa paneer salad", "Healthy", "FitKitchen", "Protein rich bowl", "Rs 299", "4.6", "30 min", "Veg", Icons.Outlined.Restaurant, WellnessSage),
             CareCatalogItem("Sattvic thali", "Indian", "AyurDine", "Light homestyle meal", "Rs 250", "4.8", "40 min", "Fresh", Icons.Outlined.Restaurant, WellnessMustard),
             CareCatalogItem("Green detox smoothie", "Beverages", "SmoothieBar", "Spinach, apple, mint", "Rs 150", "4.7", "15 min", "", Icons.Outlined.Restaurant, WellnessBlue),
             CareCatalogItem("Millet khichdi", "Comfort", "Leafy", "Gentle dinner bowl", "Rs 180", "4.9", "35 min", "Light", Icons.Outlined.Restaurant, WellnessPink),
             CareCatalogItem("Egg white wrap", "Snacks", "WrapIt", "Wholewheat high protein", "Rs 190", "4.6", "20 min", "", Icons.Outlined.Restaurant, WellnessLavender),
             CareCatalogItem("Sugar-free oat cookies", "Snacks", "SweetTruth", "Fiber dessert pack", "Rs 120", "4.7", "25 min", "BOGO", Icons.Outlined.Restaurant, WellnessSage),
-        ),
+        ) },
     )
     "Lab Tests" -> CareMode(
         title = "Book lab tests at home",
@@ -1639,14 +1686,14 @@ private fun careModeFor(label: String, accent: Color, icon: ImageVector): CareMo
         accent = accent,
         icon = icon,
         bookingMode = true,
-        items = listOf(
+        items = appState.careProfessionals.filter { it.type == "Lab" }.map { it.toCareCatalogItem(accent) }.ifEmpty { listOf(
             CareCatalogItem("Full body checkup", "Profiles", "AyuCare Diagnostics", "72 markers, fasting sample", "Rs 2,999", "4.8", "Today 7-9 AM", "Popular", Icons.Outlined.GraphicEq, WellnessBlue),
             CareCatalogItem("Thyroid profile", "Hormones", "ThyroCloud Labs", "T3, T4, TSH", "Rs 499", "4.7", "Home collection", "", Icons.Outlined.GraphicEq, WellnessSage),
             CareCatalogItem("Vitamin panel", "Vitamins", "Metric Pathology", "D3, B12, ferritin", "Rs 1,500", "4.9", "Tomorrow", "Home", Icons.Outlined.GraphicEq, WellnessLavender),
             CareCatalogItem("HbA1c test", "Metabolic", "Dr. Lal PathLabs", "3-month glucose marker", "Rs 399", "4.8", "Today evening", "", Icons.Outlined.GraphicEq, WellnessPink),
             CareCatalogItem("Lipid profile", "Metabolic", "Metropolis Healthcare", "Cardio risk panel", "Rs 650", "4.7", "Tomorrow", "", Icons.Outlined.GraphicEq, WellnessMustard),
             CareCatalogItem("Advanced imaging", "Imaging", "Wellness Path Labs", "Scan appointment", "Rs 5,000", "4.6", "Advance booking", "", Icons.Outlined.GraphicEq, WellnessBlue),
-        ),
+        ) },
     )
     "Doctor" -> CareMode(
         title = "Choose your next consult",
@@ -1656,14 +1703,14 @@ private fun careModeFor(label: String, accent: Color, icon: ImageVector): CareMo
         accent = accent,
         icon = icon,
         bookingMode = true,
-        items = listOf(
+        items = appState.careProfessionals.filter { it.type == "Doctor" }.map { it.toCareCatalogItem(accent) }.ifEmpty { listOf(
             CareCatalogItem("Dr. Sameer Khan", "General", "Delhi, online", "General physician, 12 years", "Rs 500", "4.6", "Online in 20 min", "", Icons.Outlined.Person, WellnessSage),
             CareCatalogItem("Dr. Aarav Sharma", "Heart", "Gurugram, online", "Cardiologist, 15 years", "Rs 1,000", "4.9", "Today 6:30 PM", "Top", Icons.Outlined.Person, WellnessPink),
             CareCatalogItem("Dr. Ishani Patel", "Mind", "Mumbai, online", "Psychiatrist, 10 years", "Rs 1,500", "4.8", "Tomorrow", "Video", Icons.Outlined.Person, WellnessBlue),
             CareCatalogItem("Dr. Kavita Nair", "Mind", "Bangalore, online", "Psychiatrist, 14 years", "Rs 2,000", "4.9", "Today", "", Icons.Outlined.Person, WellnessLavender),
             CareCatalogItem("Dr. Vikram Reddy", "Hormones", "Hyderabad clinic", "Endocrinologist, 20 years", "Rs 1,200", "5.0", "Today", "", Icons.Outlined.Person, WellnessMustard),
             CareCatalogItem("Dr. Sunita Deshmukh", "Ayurveda", "Nashik, online", "Ayurvedic MD, 25 years", "Rs 800", "5.0", "Today", "Clara pick", Icons.Outlined.Person, WellnessSage),
-        ),
+        ) },
     )
     "Groceries" -> CareMode(
         title = "Stock healthy groceries",
@@ -1673,14 +1720,14 @@ private fun careModeFor(label: String, accent: Color, icon: ImageVector): CareMo
         accent = accent,
         icon = icon,
         bookingMode = false,
-        items = listOf(
+        items = appState.careProducts.filter { it.category == "Groceries" }.map { it.toCareCatalogItem(accent) }.ifEmpty { listOf(
             CareCatalogItem("Seasonal fruit basket", "Fresh", "AyuCare Fresh", "4 fresh fruits", "Rs 180", "4.8", "Today", "Fresh", Icons.Outlined.Home, WellnessPink),
             CareCatalogItem("Organic ragi", "Pantry", "Farm Pantry", "1 kg finger millet", "Rs 85", "4.7", "Today", "", Icons.Outlined.Home, WellnessSage),
             CareCatalogItem("High protein paneer", "Protein", "Dairy Daily", "200 g", "Rs 120", "4.6", "35 min", "Fresh", Icons.Outlined.Home, WellnessBlue),
             CareCatalogItem("A2 desi cow ghee", "Cooking", "Gau Gram", "500 ml", "Rs 950", "4.9", "Today", "Offer", Icons.Outlined.Home, WellnessMustard),
             CareCatalogItem("Cold pressed oil", "Cooking", "Earth Pressed", "1 L groundnut oil", "Rs 240", "4.8", "Tomorrow", "", Icons.Outlined.Home, WellnessLavender),
             CareCatalogItem("Sugar-free oat cookies", "Snacks", "SweetTruth", "Dessert pack", "Rs 120", "4.7", "25 min", "BOGO", Icons.Outlined.Home, WellnessPink),
-        ),
+        ) },
     )
     else -> CareMode(
         title = "Buy pharmacy essentials",
@@ -1690,16 +1737,95 @@ private fun careModeFor(label: String, accent: Color, icon: ImageVector): CareMo
         accent = accent,
         icon = icon,
         bookingMode = false,
-        items = listOf(
+        items = appState.careProducts.filter { it.category != "Groceries" }.map { it.toCareCatalogItem(accent) }.ifEmpty { listOf(
             CareCatalogItem("Omega-3 fish oil", "Supplements", "AyuCare Pharmacy", "60 capsules", "Rs 950", "4.7", "24 min", "Top", Icons.Outlined.LocalHospital, WellnessBlue),
             CareCatalogItem("Vitamin D3 60K IU", "Supplements", "AyuCare Pharmacy", "4 softgels", "Rs 120", "4.9", "18 min", "", Icons.Outlined.LocalHospital, WellnessMustard),
             CareCatalogItem("Ashwagandha gold", "Ayurveda", "AyuCare Pharmacy", "60 capsules", "Rs 499", "4.8", "30 min", "Offer", Icons.Outlined.LocalHospital, WellnessSage),
             CareCatalogItem("Quick digestion fizz", "Medicine", "AyuCare Pharmacy", "6 sachets", "Rs 45", "4.5", "22 min", "", Icons.Outlined.LocalHospital, WellnessPink),
             CareCatalogItem("Blood pressure monitor", "Devices", "Certified devices", "Digital monitor", "Rs 2,450", "4.9", "Tomorrow", "Care", Icons.Outlined.LocalHospital, WellnessLavender),
             CareCatalogItem("Neem tulsi skin elixir", "Personal", "Ayuveda Naturals", "100 ml", "Rs 250", "4.5", "Today", "", Icons.Outlined.LocalHospital, WellnessSage),
-        ),
+        ) },
     )
 }
+
+private fun Product.toCareCatalogItem(accent: Color): CareCatalogItem =
+    CareCatalogItem(
+        name = name,
+        category = productDisplayCategory(category),
+        provider = "AyuCare",
+        detail = unit,
+        price = price.rupeeLabel(),
+        rating = rating.oneDecimal(),
+        eta = if (category == "Groceries") "Today" else "24 min",
+        tag = tag,
+        icon = if (category == "Groceries") Icons.Outlined.Home else Icons.Outlined.LocalHospital,
+        accent = accent,
+        id = id,
+        kind = "product",
+    )
+
+private fun FoodItem.toCareCatalogItem(accent: Color): CareCatalogItem =
+    CareCatalogItem(
+        name = name,
+        category = category.removeSuffix(" Food"),
+        provider = restaurant,
+        detail = if (veg) "Veg meal" else "Care meal",
+        price = price.rupeeLabel(),
+        rating = rating.oneDecimal(),
+        eta = time,
+        tag = offer.ifBlank { if (veg) "Veg" else "" },
+        icon = Icons.Outlined.Restaurant,
+        accent = accent,
+        id = id,
+        kind = "food",
+    )
+
+private fun Professional.toCareCatalogItem(accent: Color): CareCatalogItem =
+    CareCatalogItem(
+        name = name,
+        category = professionalDisplayCategory(this),
+        provider = location,
+        detail = listOf(specialty, experience).filter { it.isNotBlank() }.joinToString(", "),
+        price = price.rupeeLabel(),
+        rating = rating.oneDecimal(),
+        eta = availability,
+        tag = if (isOnline) "Online" else "",
+        icon = if (type == "Lab") Icons.Outlined.GraphicEq else Icons.Outlined.Person,
+        accent = accent,
+        id = id,
+        kind = if (type == "Lab") "lab" else "doctor",
+    )
+
+private fun productDisplayCategory(category: String): String = when (category) {
+    "Medication" -> "Medicine"
+    "Fitness" -> "Devices"
+    "Groceries" -> "Pantry"
+    else -> category
+}
+
+private fun professionalDisplayCategory(item: Professional): String {
+    if (item.type == "Lab") {
+        return when {
+            item.specialty.contains("Thyroid", ignoreCase = true) -> "Hormones"
+            item.specialty.contains("Vitamin", ignoreCase = true) -> "Vitamins"
+            item.specialty.contains("Imaging", ignoreCase = true) -> "Imaging"
+            else -> "Profiles"
+        }
+    }
+    return when {
+        item.specialty.contains("Cardio", ignoreCase = true) -> "Heart"
+        item.specialty.contains("Psych", ignoreCase = true) -> "Mind"
+        item.specialty.contains("Endocr", ignoreCase = true) -> "Hormones"
+        item.specialty.contains("Ayur", ignoreCase = true) -> "Ayurveda"
+        else -> "General"
+    }
+}
+
+private fun Double.rupeeLabel(): String =
+    if (this % 1.0 == 0.0) "Rs ${toInt()}" else "Rs ${oneDecimal()}"
+
+private fun Double.oneDecimal(): String =
+    String.format(java.util.Locale.US, "%.1f", this)
 
 private val CareInk = Color(0xFF24210F)
 private val CareMuted = Color(0xFF817865)
