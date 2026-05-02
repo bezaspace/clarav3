@@ -182,6 +182,51 @@ data class SleepStage(
     val weight: Float,
 )
 
+data class JournalTab(
+    val id: String,
+    val label: String,
+    val icon: ImageVector,
+)
+
+data class MockReflection(
+    val id: String,
+    val title: String,
+    val date: String,
+    val time: String,
+    val mood: String,
+    val excerpt: String,
+    val content: String,
+    val tags: List<String>,
+    val tone: Color,
+)
+
+data class MockReframe(
+    val id: String,
+    val date: String,
+    val time: String,
+    val situation: String,
+    val thought: String,
+    val feeling: String,
+    val reframe: String,
+    val action: String,
+)
+
+data class MockMentalLoadTask(
+    val id: String,
+    val title: String,
+    val status: String,
+    val priority: String,
+    val category: String,
+    val dueDate: String,
+)
+
+data class ClaraJournalEvent(
+    val title: String,
+    val detail: String,
+    val time: String,
+    val color: Color,
+)
+
 @Composable
 fun VoicePage(viewModel: VoiceAssistantViewModel) {
     val state by viewModel.uiState.collectAsState()
@@ -202,9 +247,9 @@ fun VoicePage(viewModel: VoiceAssistantViewModel) {
         listOf(
             BottomTabItem("Home", Icons.Outlined.Home),
             BottomTabItem("Progress", Icons.Outlined.BarChart),
-            BottomTabItem("Care", Icons.Outlined.GraphicEq),
+            BottomTabItem("Voice", Icons.Outlined.Mic),
             BottomTabItem("Journal", Icons.Outlined.ChatBubbleOutline),
-            BottomTabItem("Profile", Icons.Outlined.Person),
+            BottomTabItem("Care", Icons.Outlined.LocalHospital),
         )
     }
     var selectedTab by remember { mutableStateOf(0) }
@@ -263,7 +308,10 @@ fun VoicePage(viewModel: VoiceAssistantViewModel) {
                 onEndSession = viewModel::disconnect,
                 modifier = Modifier.padding(padding),
             )
-            else -> PlaceholderTab(label = tabs[selectedTab].title, modifier = Modifier.padding(padding))
+            selectedTab == 3 -> JournalPage(
+                modifier = Modifier.padding(padding),
+            )
+            else -> CarePage(modifier = Modifier.padding(padding))
         }
     }
 }
@@ -2490,11 +2538,14 @@ private fun HealthScoreCard() {
 @Composable
 private fun MedicationAdherenceCard() {
     val days = listOf("M", "T", "W", "T", "F", "S", "S")
-    val medications = listOf("Tajin", "Set", "Ibue")
-    val states = listOf(
-        listOf(0, 2, 1, 1, 2, 1, 1),
-        listOf(1, 2, 2, 0, 0, 2, 2),
-        listOf(2, 2, 0, 1, 1, 2, 2),
+    val adherence = listOf(
+        listOf(0.95f, 0.92f, 0.88f, 1.00f, 0.82f, 0.90f, 0.96f, 0.78f, 0.46f, 0.18f),
+        listOf(0.84f, 0.90f, 0.86f, 0.92f, 0.80f, 0.88f, 0.93f, 0.74f, 0.58f, 0.30f),
+        listOf(0.97f, 0.91f, 0.89f, 0.85f, 0.93f, 0.95f, 0.88f, 0.67f, 0.28f, 0.55f),
+        listOf(0.76f, 0.82f, 0.86f, 0.90f, 0.80f, 0.84f, 0.87f, 0.72f, 0.62f, 0.22f),
+        listOf(0.91f, 0.96f, 0.88f, 0.94f, 0.86f, 0.92f, 0.90f, 0.80f, 0.38f, 0.70f),
+        listOf(0.72f, 0.78f, 0.84f, 0.81f, 0.75f, 0.79f, 0.83f, 0.60f, 0.26f, 0.48f),
+        listOf(0.86f, 0.91f, 0.82f, 0.88f, 0.79f, 0.85f, 0.89f, 0.68f, 0.52f, 0.20f),
     )
     WellnessPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2508,7 +2559,7 @@ private fun MedicationAdherenceCard() {
                 color = WellnessDark,
             )
             Text(
-                text = "This Week",
+                text = "Last 10 doses",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
@@ -2523,47 +2574,30 @@ private fun MedicationAdherenceCard() {
             )
         }
         Spacer(Modifier.height(14.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Spacer(Modifier.width(42.dp))
-            days.forEach { day ->
+        adherence.forEachIndexed { dayIndex, scores ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(22.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = day,
-                    modifier = Modifier.weight(1f),
+                    text = days[dayIndex],
+                    modifier = Modifier.width(22.dp),
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                     ),
-                    color = Color(0xFF8D846F),
+                    color = Color(0xFF746C5E),
                     textAlign = TextAlign.Center,
                 )
-            }
-        }
-        Spacer(Modifier.height(9.dp))
-        medications.forEachIndexed { medIndex, med ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(34.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = med,
-                    modifier = Modifier.width(42.dp),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                    ),
-                    color = Color(0xFF746C5E),
-                )
-                states[medIndex].forEach { status ->
+                Spacer(Modifier.width(6.dp))
+                scores.forEach { score ->
                     Box(
                         modifier = Modifier.weight(1f),
                         contentAlignment = Alignment.Center,
                     ) {
-                        AdherenceDot(status = status)
+                        AdherenceHeatCell(score = score)
                     }
                 }
             }
@@ -2571,40 +2605,33 @@ private fun MedicationAdherenceCard() {
         Spacer(Modifier.height(14.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            AdherenceLegend(color = Color(0xFF66C37A), label = "Taken")
-            AdherenceLegend(color = Color(0xFFFF6F78), label = "Missed")
-            AdherenceLegend(color = Color(0xFFE6E0D2), label = "Skipped")
+            AdherenceLegend(color = adherenceColor(1.0f), label = "100%")
+            AdherenceLegend(color = adherenceColor(0.78f), label = "75%")
+            AdherenceLegend(color = adherenceColor(0.48f), label = "50%")
+            AdherenceLegend(color = adherenceColor(0.12f), label = "0%")
         }
     }
 }
 
 @Composable
-private fun AdherenceDot(status: Int) {
-    val color = when (status) {
-        0 -> Color(0xFFFF6F78)
-        1 -> Color(0xFF66C37A)
-        else -> Color(0xFFE6E0D2)
-    }
-    val backing = when (status) {
-        0 -> Color(0xFFFFE7E8)
-        1 -> Color(0xFFE8F6E6)
-        else -> Color(0xFFF5F0E6)
-    }
+private fun AdherenceHeatCell(score: Float) {
     Box(
         modifier = Modifier
-            .size(22.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(backing),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(11.dp)
-                .clip(CircleShape)
-                .background(color),
-        )
+            .size(18.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(adherenceColor(score)),
+    )
+}
+
+private fun adherenceColor(score: Float): Color {
+    return when {
+        score >= 0.9f -> Color(0xFF9CCF79)
+        score >= 0.75f -> Color(0xFFBFDDA3)
+        score >= 0.5f -> Color(0xFFF5D989)
+        score >= 0.25f -> Color(0xFFF5B09D)
+        else -> Color(0xFFF1A3AE)
     }
 }
 
@@ -2613,8 +2640,8 @@ private fun AdherenceLegend(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
-                .size(10.dp)
-                .clip(CircleShape)
+                .size(13.dp)
+                .clip(RoundedCornerShape(4.dp))
                 .background(color),
         )
         Spacer(Modifier.width(6.dp))
@@ -3414,6 +3441,831 @@ private fun BottomNavItem(
 }
 
 private val WellnessDark = Color(0xFF24210F)
+
+@Composable
+private fun JournalPage(
+    modifier: Modifier = Modifier,
+) {
+    val tabs = remember {
+        listOf(
+            JournalTab("today", "Today", Icons.Outlined.ChatBubbleOutline),
+            JournalTab("reflections", "Reflections", Icons.Outlined.CalendarToday),
+            JournalTab("reframes", "Reframes", Icons.Outlined.GraphicEq),
+            JournalTab("mental_load", "Mental Load", Icons.Outlined.AccessTime),
+        )
+    }
+    val reflections = remember { mockReflections() }
+    val reframes = remember { mockReframes() }
+    val events = remember { mockClaraJournalEvents() }
+    var tasks by remember { mutableStateOf(mockMentalLoadTasks()) }
+    var selectedTab by remember { mutableStateOf("today") }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFFFEBA3),
+                        Color(0xFFFFFAED),
+                        Color(0xFFFFFFFF),
+                    ),
+                ),
+            ),
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(
+                color = Color(0xFFBCEAE9).copy(alpha = 0.25f),
+                radius = size.width * 0.48f,
+                center = Offset(size.width * 0.92f, size.height * 0.12f),
+            )
+            drawCircle(
+                color = Color(0xFFE8D6FF).copy(alpha = 0.22f),
+                radius = size.width * 0.56f,
+                center = Offset(size.width * 0.02f, size.height * 0.72f),
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp)
+                .padding(top = 18.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            JournalTopBar()
+            JournalTabRow(tabs = tabs, selectedTab = selectedTab, onSelected = { selectedTab = it })
+
+            when (selectedTab) {
+                "reflections" -> JournalReflectionsView(
+                    reflections = reflections,
+                )
+                "reframes" -> JournalReframesView(
+                    reframes = reframes,
+                )
+                "mental_load" -> JournalMentalLoadView(
+                    tasks = tasks,
+                    onToggleTask = { task ->
+                        tasks = tasks.map {
+                            if (it.id == task.id) {
+                                it.copy(status = if (it.status == "completed") "todo" else "completed")
+                            } else {
+                                it
+                            }
+                        }
+                    },
+                )
+                else -> JournalTodayView(
+                    reflections = reflections,
+                    reframes = reframes,
+                    tasks = tasks,
+                    events = events,
+                    onToggleTask = { task ->
+                        tasks = tasks.map {
+                            if (it.id == task.id) {
+                                it.copy(status = if (it.status == "completed") "todo" else "completed")
+                            } else {
+                                it
+                            }
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun JournalTopBar() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = "Journal",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 24.sp,
+                    lineHeight = 27.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+                color = WellnessDark,
+            )
+            Text(
+                text = "Private reflections, reframes, and mental-load notes.",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                ),
+                color = Color(0xFF746C5E),
+            )
+        }
+    }
+}
+
+@Composable
+private fun JournalTabRow(
+    tabs: List<JournalTab>,
+    selectedTab: String,
+    onSelected: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        tabs.forEach { tab ->
+            val selected = selectedTab == tab.id
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(64.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(if (selected) Color.White.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.38f))
+                    .border(
+                        1.dp,
+                        if (selected) Color.White.copy(alpha = 0.95f) else Color.White.copy(alpha = 0.48f),
+                        RoundedCornerShape(18.dp),
+                    )
+                    .clickable { onSelected(tab.id) }
+                    .padding(horizontal = 6.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Icon(
+                    imageVector = tab.icon,
+                    contentDescription = tab.label,
+                    modifier = Modifier.size(18.dp),
+                    tint = if (selected) WellnessDark else Color(0xFF8D846F),
+                )
+                Text(
+                    text = tab.label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = if (selected) WellnessDark else Color(0xFF8D846F),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun JournalTodayView(
+    reflections: List<MockReflection>,
+    reframes: List<MockReframe>,
+    tasks: List<MockMentalLoadTask>,
+    events: List<ClaraJournalEvent>,
+    onToggleTask: (MockMentalLoadTask) -> Unit,
+) {
+    val latestReflection = reflections.firstOrNull()
+    val latestReframe = reframes.firstOrNull()
+    val openTasks = tasks.filter { it.status != "completed" }
+    val heavyTasks = openTasks.filter { it.priority == "high" }
+    val suggestedTask = openTasks.firstOrNull { it.priority != "high" } ?: openTasks.firstOrNull()
+    val loadLabel = when {
+        heavyTasks.size >= 2 -> "Heavy"
+        openTasks.size >= 3 -> "Manageable"
+        openTasks.isNotEmpty() -> "Light"
+        else -> "Clear"
+    }
+
+    JournalHeroCard(
+        reflection = latestReflection,
+        loadLabel = loadLabel,
+        openTaskCount = openTasks.size,
+        reframeCount = reframes.size,
+    )
+
+    if (latestReframe != null) {
+        JournalReframeCard(reframe = latestReframe, compact = true)
+    }
+
+    suggestedTask?.let {
+        SuggestedMentalLoadCard(
+            task = it,
+            onToggleTask = onToggleTask,
+        )
+    } ?: JournalEmptyCard()
+
+    ClaraActivityTrail(events = events)
+}
+
+@Composable
+private fun JournalHeroCard(
+    reflection: MockReflection?,
+    loadLabel: String,
+    openTaskCount: Int,
+    reframeCount: Int,
+) {
+    WellnessPanel {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Today",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = Color(0xFF1B9F6D),
+                )
+                Text(
+                    text = reflection?.mood ?: "No check-in yet",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 28.sp,
+                        lineHeight = 30.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = WellnessDark,
+                )
+                Text(
+                    text = reflection?.excerpt ?: "When Clara saves a reflection, reframe, or mental-load item, it will appear here after you approve it.",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        fontWeight = FontWeight.Medium,
+                    ),
+                    color = Color(0xFF746C5E),
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background((reflection?.tone ?: WellnessBlue).copy(alpha = 0.28f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ChatBubbleOutline,
+                    contentDescription = null,
+                    modifier = Modifier.size(23.dp),
+                    tint = reflection?.tone ?: WellnessBlue,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            JournalMiniMetric("Mental load", loadLabel, "$openTaskCount open", WellnessMustard, Modifier.weight(1f))
+            JournalMiniMetric("Reframes", reframeCount.toString(), "Thoughts reframed", WellnessSage, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun JournalMiniMetric(
+    title: String,
+    value: String,
+    caption: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(color.copy(alpha = 0.16f))
+            .border(1.dp, color.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+            color = Color(0xFF746C5E),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+            color = WellnessDark,
+        )
+        Text(
+            text = caption,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+            color = Color(0xFF817865),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun SuggestedMentalLoadCard(
+    task: MockMentalLoadTask,
+    onToggleTask: (MockMentalLoadTask) -> Unit,
+) {
+    WellnessPanel {
+        CardTitleRow("Suggested next step", task.dueDate)
+        Spacer(Modifier.height(12.dp))
+        JournalTaskRow(task = task, onToggleTask = onToggleTask)
+    }
+}
+
+@Composable
+private fun ClaraActivityTrail(events: List<ClaraJournalEvent>) {
+    WellnessPanel {
+        CardTitleRow("Recent activity", "Journal")
+        Spacer(Modifier.height(12.dp))
+        events.forEachIndexed { index, event ->
+            Row(verticalAlignment = Alignment.Top) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(event.color.copy(alpha = 0.22f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(event.color),
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = event.title,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            color = WellnessDark,
+                        )
+                        Text(
+                            text = event.time,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            color = Color(0xFF8D846F),
+                        )
+                    }
+                    Text(
+                        text = event.detail,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        color = Color(0xFF746C5E),
+                    )
+                }
+            }
+            if (index != events.lastIndex) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(start = 38.dp, top = 12.dp, bottom = 12.dp),
+                    thickness = 1.dp,
+                    color = Color(0xFFF1E9D8),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun JournalReflectionsView(
+    reflections: List<MockReflection>,
+) {
+    SectionHeader(title = "Saved reflections")
+    reflections.forEach { reflection ->
+        JournalReflectionCard(reflection = reflection)
+    }
+}
+
+@Composable
+private fun JournalReflectionCard(
+    reflection: MockReflection,
+) {
+    WellnessPanel {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "${reflection.date}  •  ${reflection.time}",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = Color(0xFF8D846F),
+                )
+                Text(
+                    text = reflection.title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 18.sp,
+                        lineHeight = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = WellnessDark,
+                )
+            }
+            JournalChip(label = reflection.mood, color = reflection.tone)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = reflection.content,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Medium,
+            ),
+            color = Color(0xFF746C5E),
+        )
+        Spacer(Modifier.height(12.dp))
+        JournalTagRow(tags = reflection.tags)
+    }
+}
+
+@Composable
+private fun JournalReframesView(
+    reframes: List<MockReframe>,
+) {
+    SectionHeader(title = "Reframes")
+    reframes.forEach { reframe ->
+        JournalReframeCard(reframe = reframe, compact = false)
+    }
+}
+
+@Composable
+private fun JournalReframeCard(
+    reframe: MockReframe,
+    compact: Boolean,
+) {
+    WellnessPanel {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = if (compact) "Latest reframe" else "${reframe.date}  •  ${reframe.time}",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = Color(0xFF8D846F),
+                )
+                Text(
+                    text = reframe.situation,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 18.sp,
+                        lineHeight = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = WellnessDark,
+                )
+            }
+            JournalChip(label = "Reframe", color = WellnessSage)
+        }
+
+        Spacer(Modifier.height(12.dp))
+        ReframePair(label = "Original thought", value = reframe.thought, color = WellnessPink)
+        Spacer(Modifier.height(8.dp))
+        ReframePair(label = "Feeling", value = reframe.feeling, color = WellnessMustard)
+        Spacer(Modifier.height(8.dp))
+        ReframePair(label = "Kinder reframe", value = reframe.reframe, color = WellnessSage)
+
+        if (!compact) {
+            Spacer(Modifier.height(8.dp))
+            ReframePair(label = "Small action", value = reframe.action, color = WellnessBlue)
+        }
+    }
+}
+
+@Composable
+private fun ReframePair(label: String, value: String, color: Color) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(15.dp))
+            .background(color.copy(alpha = 0.13f))
+            .border(1.dp, color.copy(alpha = 0.16f), RoundedCornerShape(15.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+            color = Color(0xFF746C5E),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+            color = WellnessDark,
+        )
+    }
+}
+
+@Composable
+private fun JournalMentalLoadView(
+    tasks: List<MockMentalLoadTask>,
+    onToggleTask: (MockMentalLoadTask) -> Unit,
+) {
+    val groups = listOf(
+        "Heavy on my mind" to tasks.filter { it.status != "completed" && it.priority == "high" },
+        "Can handle today" to tasks.filter { it.status != "completed" && it.priority != "high" },
+        "Done" to tasks.filter { it.status == "completed" },
+    )
+
+    groups.forEach { (title, items) ->
+        WellnessPanel {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = WellnessDark,
+                )
+                JournalChip(label = items.size.toString(), color = if (title == "Done") WellnessSage else WellnessMustard)
+            }
+            Spacer(Modifier.height(12.dp))
+            if (items.isEmpty()) {
+                Text(
+                    text = if (title == "Done") "Completed mental-load items will appear here." else "Nothing waiting in this group right now.",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                    ),
+                    color = Color(0xFF817865),
+                )
+            } else {
+                items.forEachIndexed { index, task ->
+                    JournalTaskRow(task = task, onToggleTask = onToggleTask)
+                    if (index != items.lastIndex) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 12.dp),
+                            thickness = 1.dp,
+                            color = Color(0xFFF1E9D8),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun JournalTaskRow(
+    task: MockMentalLoadTask,
+    onToggleTask: (MockMentalLoadTask) -> Unit,
+) {
+    val isDone = task.status == "completed"
+    val priorityColor = when (task.priority) {
+        "high" -> WellnessPink
+        "medium" -> WellnessMustard
+        else -> WellnessSage
+    }
+    Row(verticalAlignment = Alignment.Top) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(if (isDone) WellnessSage.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.72f))
+                .border(1.dp, if (isDone) WellnessSage else Color(0xFFE6DDCB), CircleShape)
+                .clickable { onToggleTask(task) },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (isDone) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(WellnessSage),
+                )
+            }
+        }
+        Spacer(Modifier.width(11.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = task.title,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+                color = if (isDone) Color(0xFF8D846F) else WellnessDark,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                JournalChip(label = task.priority.replaceFirstChar { it.uppercase() }, color = priorityColor)
+                JournalChip(label = task.category, color = WellnessBlue)
+                JournalChip(label = task.dueDate, color = Color(0xFFE8D6FF))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = task.status.replaceFirstChar { it.uppercase() },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = Color(0xFF817865),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun JournalTagRow(tags: List<String>) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        tags.take(3).forEach { tag ->
+            JournalChip(label = tag, color = WellnessBlue)
+        }
+    }
+}
+
+@Composable
+private fun JournalChip(label: String, color: Color) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(13.dp))
+            .background(color.copy(alpha = 0.18f))
+            .border(1.dp, color.copy(alpha = 0.2f), RoundedCornerShape(13.dp))
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+            color = WellnessDark,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun JournalEmptyCard() {
+    WellnessPanel {
+        Text(
+            text = "Your private space is ready",
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+            color = WellnessDark,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "When Clara helps you save a reflection, reframe a thought, or clear mental load, it will appear here after you approve it.",
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+                fontWeight = FontWeight.Medium,
+            ),
+            color = Color(0xFF746C5E),
+        )
+    }
+}
+
+private fun mockReflections(): List<MockReflection> = listOf(
+    MockReflection(
+        id = "morning-clarity",
+        title = "Morning clarity",
+        date = "Today",
+        time = "7:12 AM",
+        mood = "Calm",
+        excerpt = "I woke up lighter after keeping the evening wind-down simple.",
+        content = "I woke up lighter after keeping the evening wind-down simple. The quiet routine is starting to feel like something I can protect, not another rule I need to perform.",
+        tags = listOf("Sleep", "Mindfulness", "Routine"),
+        tone = WellnessSage,
+    ),
+    MockReflection(
+        id = "work-pressure",
+        title = "Pressure before the team review",
+        date = "Yesterday",
+        time = "6:40 PM",
+        mood = "Stretched",
+        excerpt = "The review felt bigger in my head than it probably is.",
+        content = "The review felt bigger in my head than it probably is. Clara helped me separate the actual preparation from the fear that I will disappoint everyone.",
+        tags = listOf("Work", "Stress"),
+        tone = WellnessMustard,
+    ),
+    MockReflection(
+        id = "walk-helped",
+        title = "Walk helped more than expected",
+        date = "Apr 28",
+        time = "8:10 PM",
+        mood = "Grounded",
+        excerpt = "A short walk changed the texture of the evening.",
+        content = "A short walk changed the texture of the evening. I did not solve everything, but I came back with enough space to make dinner and stop scrolling.",
+        tags = listOf("Movement", "Self-care"),
+        tone = WellnessBlue,
+    ),
+)
+
+private fun mockReframes(): List<MockReframe> = listOf(
+    MockReframe(
+        id = "review-reframe",
+        date = "Today",
+        time = "9:05 AM",
+        situation = "Team review is coming up",
+        thought = "If I miss one detail, everyone will think I am unprepared.",
+        feeling = "Anxious, tight chest",
+        reframe = "Being prepared means knowing the important points, not controlling every possible question.",
+        action = "Write the three decisions I need from the room.",
+    ),
+    MockReframe(
+        id = "diet-slip",
+        date = "Yesterday",
+        time = "8:46 PM",
+        situation = "Office snacks after lunch",
+        thought = "I ruined my progress again.",
+        feeling = "Guilty, frustrated",
+        reframe = "One snack is data, not a verdict. The next meal can still match my plan.",
+        action = "Pre-pack tomorrow's afternoon snack.",
+    ),
+    MockReframe(
+        id = "sleep-routine",
+        date = "Apr 28",
+        time = "10:12 PM",
+        situation = "Felt tempted to work late",
+        thought = "If I stop now, I am falling behind.",
+        feeling = "Restless, pressured",
+        reframe = "Stopping on time is part of tomorrow's productivity.",
+        action = "Close the laptop and set one clear first task for morning.",
+    ),
+)
+
+private fun mockMentalLoadTasks(): List<MockMentalLoadTask> = listOf(
+    MockMentalLoadTask(
+        id = "prep-review",
+        title = "Write the three decisions needed for the team review",
+        status = "todo",
+        priority = "high",
+        category = "Work",
+        dueDate = "Today",
+    ),
+    MockMentalLoadTask(
+        id = "message-cousin",
+        title = "Reply to cousin about Sunday's family plan",
+        status = "todo",
+        priority = "medium",
+        category = "Family",
+        dueDate = "Today",
+    ),
+    MockMentalLoadTask(
+        id = "snack-prep",
+        title = "Pack a steady afternoon snack",
+        status = "todo",
+        priority = "low",
+        category = "Food",
+        dueDate = "Tomorrow",
+    ),
+    MockMentalLoadTask(
+        id = "book-lab",
+        title = "Book full body lab test",
+        status = "completed",
+        priority = "high",
+        category = "Health",
+        dueDate = "Yesterday",
+    ),
+)
+
+private fun mockClaraJournalEvents(): List<ClaraJournalEvent> = listOf(
+    ClaraJournalEvent(
+        title = "Saved a reframe",
+        detail = "Team review anxiety was turned into one kinder thought and a small action.",
+        time = "9:05 AM",
+        color = WellnessSage,
+    ),
+    ClaraJournalEvent(
+        title = "Added mental-load task",
+        detail = "Reply to cousin about Sunday's plan was saved as something manageable today.",
+        time = "8:28 AM",
+        color = WellnessMustard,
+    ),
+    ClaraJournalEvent(
+        title = "Saved reflection",
+        detail = "Morning clarity was added after you approved Clara's summary.",
+        time = "7:12 AM",
+        color = WellnessBlue,
+    ),
+)
 
 @Composable
 private fun AssistantPage(
