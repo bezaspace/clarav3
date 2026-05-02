@@ -3,7 +3,21 @@ import unittest
 from voice_assistant.agent import create_voice_assistant_agent
 from voice_assistant.db import reset_sections
 from voice_assistant.db import save_sections
+from voice_assistant.main import _extract_tool_payloads
 from voice_assistant.tools import get_health_snapshot
+
+
+class _FunctionResponse:
+    def __init__(self, response):
+        self.response = response
+
+
+class _Event:
+    def __init__(self, responses):
+        self._responses = responses
+
+    def get_function_responses(self):
+        return self._responses
 
 
 class HealthSnapshotToolTest(unittest.TestCase):
@@ -65,6 +79,7 @@ class HealthSnapshotToolTest(unittest.TestCase):
         snapshot = get_health_snapshot()
 
         self.assertEqual(snapshot["type"], "health_snapshot")
+        self.assertEqual(snapshot["focus"], "overview")
         self.assertIn("generatedAt", snapshot)
         self.assertEqual(
             snapshot["sourceSections"],
@@ -107,6 +122,27 @@ class HealthSnapshotToolTest(unittest.TestCase):
             {"workoutData": [], "sessions": [], "milestone": {}},
         )
         self.assertEqual(snapshot["progress"]["medication"], {"overview": {}, "adherenceRows": []})
+
+    def test_normalizes_focus_for_ui_rendering(self):
+        medication = get_health_snapshot(focus="medicine")
+        nutrition = get_health_snapshot(focus="diet")
+        fitness = get_health_snapshot(focus="workouts")
+        mind = get_health_snapshot(focus="mental health")
+        fallback = get_health_snapshot(focus="not-a-real-focus")
+
+        self.assertEqual(medication["focus"], "medication")
+        self.assertEqual(nutrition["focus"], "nutrition")
+        self.assertEqual(fitness["focus"], "fitness")
+        self.assertEqual(mind["focus"], "mind")
+        self.assertEqual(fallback["focus"], "overview")
+
+    def test_websocket_forwards_health_snapshot_tool_payload(self):
+        payload = get_health_snapshot(focus="fitness")
+        event = _Event([_FunctionResponse(payload)])
+
+        forwarded = _extract_tool_payloads(event)
+
+        self.assertEqual(forwarded, [payload])
 
     def test_agent_registers_health_snapshot_tool(self):
         agent = create_voice_assistant_agent()

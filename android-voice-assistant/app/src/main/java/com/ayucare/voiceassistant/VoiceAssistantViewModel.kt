@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import com.ayucare.voiceassistant.data.AppUiState
 import com.ayucare.voiceassistant.data.ActivityCard
 import com.ayucare.voiceassistant.data.AssistantCarePanel
+import com.ayucare.voiceassistant.data.AssistantProgressPanel
 import com.ayucare.voiceassistant.data.AssistantVisualState
 import com.ayucare.voiceassistant.data.CareActivity
 import com.ayucare.voiceassistant.data.CareRecommendationCard
@@ -22,6 +23,7 @@ import com.ayucare.voiceassistant.data.DashboardScheduleItem
 import com.ayucare.voiceassistant.data.JournalTask
 import com.ayucare.voiceassistant.data.VoiceConfig
 import com.ayucare.voiceassistant.data.VoiceUiState
+import com.ayucare.voiceassistant.data.parseAssistantProgressPanel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -206,6 +208,7 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                             isRecording = false,
                             activityCards = emptyList(),
                             carePanel = null,
+                            progressPanel = null,
                         )
                     }
                 }
@@ -239,6 +242,7 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
                 statusText = "Session ended",
                 activityCards = emptyList(),
                 carePanel = null,
+                progressPanel = null,
             )
         }
         releasePlayback()
@@ -357,6 +361,10 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
             "schedule_snapshot" -> {
                 val cards = payload.optJSONArray("items").mapObjects { it.parseActivityCard() }
                 showActivityCards(cards)
+            }
+
+            "health_snapshot" -> {
+                showProgressPanel(payload.parseAssistantProgressPanel())
             }
 
             "activity_completion_logged" -> {
@@ -521,13 +529,24 @@ class VoiceAssistantViewModel(application: android.app.Application) : AndroidVie
 
     private fun showActivityCards(cards: List<ActivityCard>) {
         if (cards.isEmpty()) return
-        _uiState.update { it.copy(activityCards = cards.take(6), carePanel = null) }
+        _uiState.update { it.copy(activityCards = cards.take(6), carePanel = null, progressPanel = null) }
     }
 
     private fun showCarePanel(panel: AssistantCarePanel) {
         _uiState.update {
             it.copy(
                 carePanel = panel,
+                activityCards = emptyList(),
+                progressPanel = null,
+            )
+        }
+    }
+
+    private fun showProgressPanel(panel: AssistantProgressPanel) {
+        _uiState.update {
+            it.copy(
+                progressPanel = panel,
+                carePanel = null,
                 activityCards = emptyList(),
             )
         }

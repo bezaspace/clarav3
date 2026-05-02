@@ -91,6 +91,7 @@ import com.ayucare.voiceassistant.VoiceAssistantViewModel
 import com.ayucare.voiceassistant.data.AppUiState
 import com.ayucare.voiceassistant.data.AssistantVisualState
 import com.ayucare.voiceassistant.data.AssistantCarePanel
+import com.ayucare.voiceassistant.data.AssistantProgressPanel
 import com.ayucare.voiceassistant.data.Biomarker
 import com.ayucare.voiceassistant.data.CareActivity
 import com.ayucare.voiceassistant.data.CareRecommendationCard
@@ -318,6 +319,7 @@ fun VoicePage(viewModel: VoiceAssistantViewModel) {
                 state = state,
                 activityCards = state.activityCards,
                 carePanel = state.carePanel,
+                progressPanel = state.progressPanel,
                 onMicClick = {
                     val granted = ContextCompat.checkSelfPermission(
                         context,
@@ -4529,6 +4531,7 @@ private fun AssistantPage(
     state: VoiceUiState,
     activityCards: List<ActivityCard>,
     carePanel: AssistantCarePanel?,
+    progressPanel: AssistantProgressPanel?,
     onMicClick: () -> Unit,
     onEndSession: () -> Unit,
     modifier: Modifier = Modifier,
@@ -4599,7 +4602,9 @@ private fun AssistantPage(
                 }
             }
 
-            if (carePanel != null) {
+            if (progressPanel != null) {
+                AssistantProgressPanelView(panel = progressPanel)
+            } else if (carePanel != null) {
                 AssistantCarePanelView(panel = carePanel)
             } else if (activityCards.isNotEmpty()) {
                 AssistantActivityCards(
@@ -4669,6 +4674,487 @@ private fun AssistantPage(
             )
         }
     }
+}
+
+@Composable
+private fun AssistantProgressPanelView(panel: AssistantProgressPanel) {
+    val focus = panel.focus.ifBlank { "overview" }
+    val accent = progressAccent(focus)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.92f)),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, accent.copy(alpha = 0.24f), RoundedCornerShape(22.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(accent.copy(alpha = 0.22f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = progressIcon(focus),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = WellnessDark,
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = progressPanelTitle(focus),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        color = WellnessDark,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = progressPanelSubtitle(panel),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        color = Color(0xFF746C5E),
+                        maxLines = 2,
+                    )
+                }
+            }
+
+            when (focus) {
+                "medication" -> AssistantMedicationProgress(panel)
+                "nutrition" -> AssistantNutritionProgress(panel)
+                "fitness" -> AssistantFitnessProgress(panel)
+                "mind" -> AssistantMindProgress(panel)
+                "biomarkers" -> AssistantBiomarkerProgress(panel)
+                "profile" -> AssistantProfileProgress(panel)
+                else -> AssistantOverviewProgress(panel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssistantOverviewProgress(panel: AssistantProgressPanel) {
+    val snapshot = panel.snapshot
+    val adherence = snapshot.medication.overview.adherence.filter { it.isDigit() }.toIntOrNull() ?: 0
+    val latestDiet = snapshot.diet.historyData.lastOrNull()
+    val latestMind = snapshot.mentalHealth.historyData.lastOrNull()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = Modifier.size(76.dp), contentAlignment = Alignment.Center) {
+            RingPercent(
+                percent = adherence.coerceIn(0, 100) / 100f,
+                color = adherenceColor(adherence / 100f),
+                modifier = Modifier.fillMaxSize(),
+            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = if (adherence > 0) adherence.toString() else "--",
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 22.sp, fontWeight = FontWeight.Bold),
+                    color = WellnessDark,
+                )
+                Text(
+                    text = "score",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                    color = Color(0xFF746C5E),
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistantProgressMiniMetric(
+                    label = "Medicine",
+                    value = snapshot.medication.overview.adherence.ifBlank { "--" },
+                    color = WellnessSage,
+                    modifier = Modifier.weight(1f),
+                )
+                AssistantProgressMiniMetric(
+                    label = "Protein",
+                    value = latestDiet?.protein?.let { "${it.toInt()}g" } ?: "--",
+                    color = Color(0xFF66C37A),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistantProgressMiniMetric(
+                    label = "Workouts",
+                    value = snapshot.workouts.sessions.size.toString(),
+                    color = WellnessBlue,
+                    modifier = Modifier.weight(1f),
+                )
+                AssistantProgressMiniMetric(
+                    label = "Mood",
+                    value = latestMind?.moodScore?.let { roundOne(it) } ?: snapshot.mentalHealth.quickStats.moodIndex.ifBlank { "--" },
+                    color = WellnessPink,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssistantMedicationProgress(panel: AssistantProgressPanel) {
+    val medication = panel.snapshot.medication
+    val rows = medication.adherenceRows
+        .takeLast(28)
+        .chunked(7)
+        .map { row -> row.map { day -> (day.level / 4f).coerceIn(0f, 1f) } }
+        .ifEmpty {
+            listOf(
+                listOf(1f, 0.9f, 0.82f, 1f, 0.75f, 0.9f, 0.96f),
+                listOf(0.84f, 0.9f, 0.86f, 0.92f, 0.8f, 0.88f, 0.93f),
+            )
+        }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AssistantProgressMiniMetric(
+            label = "Adherence",
+            value = medication.overview.adherence.ifBlank { "--" },
+            color = WellnessSage,
+            modifier = Modifier.weight(1f),
+        )
+        AssistantProgressMiniMetric(
+            label = "Streak",
+            value = medication.overview.streak.ifBlank { "--" },
+            color = WellnessMustard,
+            modifier = Modifier.weight(1.25f),
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        rows.take(4).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                row.forEach { score ->
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AdherenceHeatCell(score = score)
+                    }
+                }
+            }
+        }
+    }
+    if (medication.overview.refillText.isNotBlank()) {
+        AssistantProgressNote(text = medication.overview.refillText, color = WellnessPink)
+    }
+}
+
+@Composable
+private fun AssistantNutritionProgress(panel: AssistantProgressPanel) {
+    val history = panel.snapshot.diet.historyData
+    val latest = history.lastOrNull()
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AssistantProgressMiniMetric(
+            label = "Carbs",
+            value = latest?.carbs?.let { "${it.toInt()}g" } ?: "--",
+            color = Color(0xFFFFB84D),
+            modifier = Modifier.weight(1f),
+        )
+        AssistantProgressMiniMetric(
+            label = "Protein",
+            value = latest?.protein?.let { "${it.toInt()}g" } ?: "--",
+            color = Color(0xFF66C37A),
+            modifier = Modifier.weight(1f),
+        )
+        AssistantProgressMiniMetric(
+            label = "Fiber",
+            value = latest?.fiber?.let { "${it.toInt()}%" } ?: "--",
+            color = WellnessBlue,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    val series = nutritionMacroSeries(history).take(2)
+    if (series.isNotEmpty()) {
+        MultiSoftLineChart(series = series, modifier = Modifier.height(102.dp))
+    }
+    AssistantProgressNote(
+        text = "Sattvic goal: ${panel.snapshot.diet.sattvicGoal} planned meals.",
+        color = WellnessSage,
+    )
+}
+
+@Composable
+private fun AssistantFitnessProgress(panel: AssistantProgressPanel) {
+    val workouts = panel.snapshot.workouts
+    val rows = workouts.workoutData.take(4)
+    if (rows.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            rows.forEach { item ->
+                val ratio = if (item.fullMark == 0.0) 0f else (item.value / item.fullMark).toFloat()
+                AssistantProgressBarRow(
+                    label = item.subject,
+                    value = "${(ratio.coerceIn(0f, 1f) * 100).toInt()}%",
+                    progress = ratio,
+                    color = WellnessBlue,
+                )
+            }
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        workouts.sessions.take(2).forEach { session ->
+            AssistantProgressMiniMetric(
+                label = session.type,
+                value = session.duration.ifBlank { session.cals.ifBlank { "--" } },
+                color = WellnessSage,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+    if (workouts.milestone.title.isNotBlank()) {
+        AssistantProgressNote(text = workouts.milestone.title, color = WellnessPink)
+    }
+}
+
+@Composable
+private fun AssistantMindProgress(panel: AssistantProgressPanel) {
+    val mental = panel.snapshot.mentalHealth
+    val latest = mental.historyData.lastOrNull()
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AssistantProgressMiniMetric(
+            label = "Sleep",
+            value = latest?.sleepHours?.let { "${roundOne(it)}h" } ?: mental.quickStats.avgSleep.ifBlank { "--" },
+            color = WellnessBlue,
+            modifier = Modifier.weight(1f),
+        )
+        AssistantProgressMiniMetric(
+            label = "Mood",
+            value = latest?.moodScore?.let { roundOne(it) } ?: mental.quickStats.moodIndex.ifBlank { "--" },
+            color = WellnessPink,
+            modifier = Modifier.weight(1f),
+        )
+        AssistantProgressMiniMetric(
+            label = "Streak",
+            value = mental.quickStats.zenStreak.ifBlank { "--" },
+            color = WellnessSage,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    val mood = mental.historyData.takeLast(7).map { it.moodScore.toFloat() }.filter { it > 0f }
+    val sleep = mental.historyData.takeLast(7).map { it.sleepHours.toFloat() }.filter { it > 0f }
+    if (mood.isNotEmpty() || sleep.isNotEmpty()) {
+        MultiSoftLineChart(
+            series = listOf(
+                NutritionSeries("Mood", WellnessPink, mood.ifEmpty { listOf(6.8f, 7.4f, 7.1f) }),
+                NutritionSeries("Sleep", WellnessBlue, sleep.ifEmpty { listOf(6.2f, 7.0f, 7.2f) }),
+            ),
+            modifier = Modifier.height(102.dp),
+        )
+    }
+}
+
+@Composable
+private fun AssistantBiomarkerProgress(panel: AssistantProgressPanel) {
+    val biomarkers = panel.snapshot.biomarkers.biomarkers
+        .sortedBy { biomarkerStatusPriority(it.status) }
+        .take(3)
+    val summary = panel.snapshot.biomarkers.summary
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AssistantProgressMiniMetric(
+            label = "Analyzed",
+            value = summary.metricsAnalyzed.takeIf { it > 0 }?.toString() ?: biomarkers.size.toString(),
+            color = WellnessBlue,
+            modifier = Modifier.weight(1f),
+        )
+        AssistantProgressMiniMetric(
+            label = "Priority",
+            value = summary.priorityRisks.takeIf { it > 0 }?.toString() ?: "--",
+            color = WellnessPink,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        biomarkers.forEachIndexed { index, marker ->
+            val reading = marker.toBiomarkerReading(index)
+            AssistantProgressBarRow(
+                label = marker.name,
+                value = marker.valueLabel(),
+                progress = reading.progress,
+                color = reading.accent,
+            )
+        }
+    }
+    if (summary.nextRetest.isNotBlank()) {
+        AssistantProgressNote(text = "Next retest: ${summary.nextRetest}", color = WellnessMustard)
+    }
+}
+
+@Composable
+private fun AssistantProfileProgress(panel: AssistantProgressPanel) {
+    val profile = panel.snapshot.dashboard.profile
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AssistantProgressMiniMetric(
+            label = "Phase",
+            value = profile.status.ifBlank { "--" },
+            color = WellnessSage,
+            modifier = Modifier.weight(1.25f),
+        )
+        AssistantProgressMiniMetric(
+            label = "Blood",
+            value = profile.bloodType.ifBlank { "--" },
+            color = WellnessPink,
+            modifier = Modifier.weight(0.75f),
+        )
+    }
+    AssistantProgressNote(
+        text = listOf(
+            profile.conditions.joinToString(", ").ifBlank { "No active conditions listed" },
+            profile.allergies.joinToString(", ").ifBlank { "No allergies listed" },
+        ).joinToString(" - "),
+        color = WellnessBlue,
+    )
+    profile.targets.take(2).forEach { target ->
+        AssistantProgressBarRow(
+            label = target.goal,
+            value = "${target.current} -> ${target.aim}",
+            progress = if (target.effort.equals("high", ignoreCase = true)) 0.72f else 0.84f,
+            color = if (target.effort.equals("high", ignoreCase = true)) WellnessPink else WellnessSage,
+        )
+    }
+}
+
+@Composable
+private fun AssistantProgressMiniMetric(
+    label: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(color.copy(alpha = 0.14f))
+            .padding(horizontal = 9.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+            color = Color(0xFF746C5E),
+            maxLines = 1,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold),
+            color = WellnessDark,
+            maxLines = 2,
+        )
+    }
+}
+
+@Composable
+private fun AssistantProgressBarRow(
+    label: String,
+    value: String,
+    progress: Float,
+    color: Color,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = label,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                color = WellnessDark,
+                maxLines = 1,
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                color = Color(0xFF746C5E),
+                maxLines = 1,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xFFEDE8D8)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(progress.coerceIn(0.05f, 1f))
+                    .fillMaxHeight()
+                    .background(color),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AssistantProgressNote(text: String, color: Color) {
+    if (text.isBlank()) return
+    Text(
+        text = text,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(color.copy(alpha = 0.16f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold),
+        color = WellnessDark,
+        maxLines = 2,
+    )
+}
+
+private fun progressPanelTitle(focus: String): String = when (focus) {
+    "medication" -> "Medication progress"
+    "nutrition" -> "Nutrition progress"
+    "fitness" -> "Fitness progress"
+    "mind" -> "Mind progress"
+    "biomarkers" -> "Biomarker progress"
+    "profile" -> "Health context"
+    else -> "Health progress"
+}
+
+private fun progressPanelSubtitle(panel: AssistantProgressPanel): String {
+    val snapshot = panel.snapshot
+    return when (panel.focus) {
+        "medication" -> snapshot.medication.overview.streak.ifBlank { snapshot.medication.overview.refillText }
+        "nutrition" -> "Latest nutrition trend across macros and micros."
+        "fitness" -> snapshot.workouts.milestone.title.ifBlank { "${snapshot.workouts.sessions.size} sessions tracked." }
+        "mind" -> snapshot.mentalHealth.quickStats.zenStreak.ifBlank { "Mood and sleep trend snapshot." }
+        "biomarkers" -> snapshot.biomarkers.summary.priorityRisksLabel.ifBlank { snapshot.biomarkers.summary.optimizationGoal }
+        "profile" -> snapshot.dashboard.profile.status.ifBlank { "Conditions, allergies, history, and targets." }
+        else -> snapshot.dashboard.profile.status.ifBlank { "Medication, nutrition, fitness, and mind snapshot." }
+    }.ifBlank { "Current health progress snapshot." }
+}
+
+private fun progressIcon(focus: String): ImageVector = when (focus) {
+    "medication" -> Icons.Outlined.LocalHospital
+    "nutrition" -> Icons.Outlined.Restaurant
+    "fitness" -> Icons.AutoMirrored.Outlined.DirectionsWalk
+    "mind" -> Icons.Outlined.ChatBubbleOutline
+    "biomarkers" -> Icons.Outlined.GraphicEq
+    "profile" -> Icons.Outlined.Person
+    else -> Icons.Outlined.BarChart
+}
+
+private fun progressAccent(focus: String): Color = when (focus) {
+    "medication" -> WellnessSage
+    "nutrition" -> WellnessMustard
+    "fitness" -> WellnessBlue
+    "mind" -> WellnessPink
+    "biomarkers" -> Color(0xFF9B8CF2)
+    "profile" -> Color(0xFFBCEAE9)
+    else -> WellnessSage
+}
+
+private fun biomarkerStatusPriority(status: String): Int = when (status.lowercase()) {
+    "critical" -> 0
+    "concerning" -> 1
+    else -> 2
 }
 
 @Composable

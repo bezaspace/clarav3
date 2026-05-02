@@ -25,6 +25,36 @@ LAST_ACTIVITY_CARD_STATE_KEY = "app:last_activity_card"
 LAST_CARE_RECOMMENDATIONS_STATE_KEY = "app:last_care_recommendations"
 LAST_CARE_SELECTION_STATE_KEY = "app:last_care_selection"
 logger = logging.getLogger("voice_assistant.tools")
+HEALTH_SNAPSHOT_FOCUS_ALIASES = {
+    "adherence": "medication",
+    "allergies": "profile",
+    "biomarker": "biomarkers",
+    "biomarkers": "biomarkers",
+    "conditions": "profile",
+    "diet": "nutrition",
+    "exercise": "fitness",
+    "fitness": "fitness",
+    "health": "overview",
+    "history": "profile",
+    "labs": "biomarkers",
+    "medication": "medication",
+    "medicine": "medication",
+    "mental": "mind",
+    "mental_health": "mind",
+    "mind": "mind",
+    "mood": "mind",
+    "nutrition": "nutrition",
+    "overall": "overview",
+    "overview": "overview",
+    "profile": "profile",
+    "progress": "overview",
+    "score": "overview",
+    "sleep": "mind",
+    "stress": "mind",
+    "targets": "profile",
+    "workout": "fitness",
+    "workouts": "fitness",
+}
 
 
 def manage_care_services(
@@ -137,6 +167,7 @@ def manage_journal(
 
 
 def get_health_snapshot(
+    focus: str | None = None,
     tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Returns the user's full health snapshot from Home and Progress data.
@@ -147,11 +178,15 @@ def get_health_snapshot(
     - diet, medication, mental health, workout, or adherence metrics
     - the user's overall health picture or health context
 
+    Set focus to one of: overview, medication, nutrition, fitness, mind,
+    biomarkers, or profile. Unknown focus values fall back to overview.
+
     Do not use this tool for schedule-only questions. Use the schedule tools
     for next activity, today's plan, pending schedule, or agenda questions.
     """
 
     del tool_context
+    normalized_focus = _normalize_health_snapshot_focus(focus)
 
     dashboard = _load_mapping_section("dashboard")
     profile = dashboard.get("profile")
@@ -182,6 +217,7 @@ def get_health_snapshot(
 
     result = {
         "type": "health_snapshot",
+        "focus": normalized_focus,
         "generatedAt": datetime.now(LOCAL_TIMEZONE).isoformat(),
         "dashboard": dashboard,
         "progress": {
@@ -203,7 +239,8 @@ def get_health_snapshot(
         ],
     }
     logger.info(
-        "tool.get_health_snapshot biomarkers=%s diet_points=%s mental_points=%s workout_sessions=%s",
+        "tool.get_health_snapshot focus=%s biomarkers=%s diet_points=%s mental_points=%s workout_sessions=%s",
+        normalized_focus,
         len(biomarkers),
         len(diet.get("historyData", [])) if isinstance(diet.get("historyData"), list) else 0,
         len(mental_health.get("historyData", []))
@@ -212,6 +249,11 @@ def get_health_snapshot(
         len(workouts.get("sessions", [])) if isinstance(workouts.get("sessions"), list) else 0,
     )
     return result
+
+
+def _normalize_health_snapshot_focus(focus: str | None) -> str:
+    normalized = str(focus or "overview").strip().lower().replace("-", "_").replace(" ", "_")
+    return HEALTH_SNAPSHOT_FOCUS_ALIASES.get(normalized, "overview")
 
 
 def log_activity_completion(

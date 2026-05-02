@@ -23,7 +23,26 @@ data class DashboardData(
 
 data class DashboardProfile(
     val name: String = "",
+    val age: Int = 0,
+    val bloodType: String = "",
+    val prakriti: String = "",
     val status: String = "",
+    val allergies: List<String> = emptyList(),
+    val conditions: List<String> = emptyList(),
+    val history: List<ProfileHistoryItem> = emptyList(),
+    val targets: List<ProfileTarget> = emptyList(),
+)
+
+data class ProfileHistoryItem(
+    val year: String = "",
+    val event: String = "",
+)
+
+data class ProfileTarget(
+    val goal: String = "",
+    val current: String = "",
+    val aim: String = "",
+    val effort: String = "",
 )
 
 data class DashboardScheduleItem(
@@ -148,6 +167,21 @@ data class AssistantCarePanel(
     val eta: String = "",
     val totalPrice: Double = 0.0,
     val activity: CareActivity? = null,
+)
+
+data class AssistantProgressPanel(
+    val focus: String = "overview",
+    val generatedAt: String = "",
+    val snapshot: HealthSnapshot = HealthSnapshot(),
+)
+
+data class HealthSnapshot(
+    val dashboard: DashboardData = DashboardData(),
+    val biomarkers: BiomarkerData = BiomarkerData(),
+    val diet: DietData = DietData(),
+    val mentalHealth: MentalData = MentalData(),
+    val workouts: WorkoutData = WorkoutData(),
+    val medication: MedicationData = MedicationData(),
 )
 
 data class JournalData(

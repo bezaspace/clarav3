@@ -117,7 +117,26 @@ private fun JSONObject.parseDashboard(): DashboardData {
     return DashboardData(
         profile = DashboardProfile(
             name = profile.optString("name"),
+            age = profile.optInt("age"),
+            bloodType = profile.optString("bloodType"),
+            prakriti = profile.optString("prakriti"),
             status = profile.optString("status"),
+            allergies = profile.optJSONArray("allergies").mapStrings(),
+            conditions = profile.optJSONArray("conditions").mapStrings(),
+            history = profile.optJSONArray("history").mapObjects {
+                ProfileHistoryItem(
+                    year = it.opt("year")?.toString().orEmpty(),
+                    event = it.optString("event"),
+                )
+            },
+            targets = profile.optJSONArray("targets").mapObjects {
+                ProfileTarget(
+                    goal = it.optString("goal"),
+                    current = it.optString("current"),
+                    aim = it.optString("aim"),
+                    effort = it.optString("effort"),
+                )
+            },
         ),
         todaysSchedule = optJSONArray("todaysSchedule").mapObjects { item ->
             DashboardScheduleItem(
@@ -131,6 +150,26 @@ private fun JSONObject.parseDashboard(): DashboardData {
                 completedAt = item.optString("completedAt"),
             )
         },
+    )
+}
+
+internal fun JSONObject.parseAssistantProgressPanel(): AssistantProgressPanel {
+    val progress = optJSONObject("progress") ?: JSONObject()
+    val biomarkerPayload = JSONObject()
+        .put("biomarkers", progress.optJSONArray("biomarkers") ?: JSONArray())
+        .put("summary", progress.optJSONObject("biomarkersSummary") ?: JSONObject())
+
+    return AssistantProgressPanel(
+        focus = normalizeProgressFocus(optString("focus", "overview")),
+        generatedAt = optString("generatedAt"),
+        snapshot = HealthSnapshot(
+            dashboard = (optJSONObject("dashboard") ?: JSONObject()).parseDashboard(),
+            biomarkers = biomarkerPayload.parseBiomarkerData(),
+            diet = (progress.optJSONObject("diet") ?: JSONObject()).parseDietData(),
+            mentalHealth = (progress.optJSONObject("mentalHealth") ?: JSONObject()).parseMentalData(),
+            workouts = (progress.optJSONObject("workouts") ?: JSONObject()).parseWorkoutData(),
+            medication = (progress.optJSONObject("medication") ?: JSONObject()).parseMedicationData(),
+        ),
     )
 }
 
@@ -355,6 +394,17 @@ private fun JSONArray?.mapStrings(): List<String> {
         optString(index).takeIf { it.isNotBlank() }
     }
 }
+
+private fun normalizeProgressFocus(value: String): String =
+    when (value.trim().lowercase().replace("-", "_").replace(" ", "_")) {
+        "medication", "medicine", "adherence" -> "medication"
+        "nutrition", "diet" -> "nutrition"
+        "fitness", "workout", "workouts", "exercise" -> "fitness"
+        "mind", "mental", "mental_health", "mood", "sleep", "stress" -> "mind"
+        "biomarker", "biomarkers", "labs" -> "biomarkers"
+        "profile", "allergies", "conditions", "history", "targets" -> "profile"
+        else -> "overview"
+    }
 
 private fun String.urlPathSafe(): String =
     java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")

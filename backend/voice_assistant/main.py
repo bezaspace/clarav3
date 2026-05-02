@@ -514,6 +514,7 @@ def _extract_tool_payloads(event: object) -> list[dict[str, Any]]:
         if parsed.get("type") in {
             "current_activity",
             "schedule_snapshot",
+            "health_snapshot",
             "care_activity_confirmation_required",
             "care_activity_created",
             "care_activity_error",
