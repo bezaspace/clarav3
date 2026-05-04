@@ -1,31 +1,25 @@
 import { useEffect, useState } from 'react';
-import { Card } from '@/src/components/ui/Card';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '@/src/lib/utils';
 import { api } from '@/src/lib/api';
 import type { CareActivity, DashboardData, DashboardProfile } from '@/src/lib/types';
-import { 
-  User, 
-  ShieldAlert, 
-  History, 
-  Target, 
-  Dna, 
-  Fingerprint,
-  Stethoscope,
-  Brain,
-  Dumbbell,
-  Utensils,
-  Pill,
+import {
+  User,
   Clock,
+  ChevronRight,
+  Moon,
+  Footprints,
+  Smile,
   CheckCircle2,
   Circle,
-  ShoppingBag,
-  Truck,
-  TestTubes,
-  Trash2
+  MapPin,
+  Stethoscope,
+  Pill,
+  Activity,
 } from 'lucide-react';
 
 const EMPTY_PROFILE: DashboardProfile = {
-  name: '',
+  name: 'Clara',
   age: 0,
   bloodType: '',
   prakriti: '',
@@ -36,28 +30,51 @@ const EMPTY_PROFILE: DashboardProfile = {
   targets: [],
 };
 
+// Mock schedule data matching the screenshot
+const MOCK_SCHEDULE = [
+  {
+    id: '1',
+    time: '10:30 AM',
+    title: 'Dr. Sarah Johnson',
+    subtitle: 'Cardiology Consultation',
+    type: 'doctor',
+    status: 'upcoming',
+  },
+  {
+    id: '2',
+    time: '01:00 PM',
+    title: 'Take Aspirin',
+    subtitle: '1 tablet after lunch',
+    type: 'medicine',
+    status: 'pending',
+  },
+  {
+    id: '3',
+    time: '07:30 PM',
+    title: 'Evening Walk',
+    subtitle: '30 min • Outdoor',
+    type: 'activity',
+    status: 'pending',
+  },
+];
+
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DashboardData | null>(null);
-  const [careActivity, setCareActivity] = useState<CareActivity[]>([]);
-  const [deletingCareId, setDeletingCareId] = useState<string | null>(null);
+  const [careActivity] = useState<CareActivity[]>([]);
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      api.dashboard(),
-      api.careActivity(true),
-    ])
-      .then(([payload, activity]) => {
+    Promise.all([api.dashboard(), api.careActivity(true)])
+      .then(([payload]) => {
         if (active) {
           setData(payload);
-          setCareActivity(activity);
         }
       })
       .catch(() => {
         if (active) {
           setData({ profile: EMPTY_PROFILE, todaysSchedule: [] });
-          setCareActivity([]);
         }
       })
       .finally(() => active && setLoading(false));
@@ -68,288 +85,220 @@ export default function Dashboard() {
   }, []);
 
   if (loading) {
-    return <div className="text-sm text-stone-500">Loading...</div>;
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <div className="text-text-secondary">Loading...</div>
+      </div>
+    );
   }
 
-  if (!data) {
-    return <div className="text-sm text-stone-500">Unable to load dashboard.</div>;
-  }
+  const profile = data?.profile ?? EMPTY_PROFILE;
 
-  const profile = {
-    ...EMPTY_PROFILE,
-    ...(data.profile ?? {}),
-    allergies: Array.isArray(data.profile?.allergies) ? data.profile.allergies : [],
-    conditions: Array.isArray(data.profile?.conditions) ? data.profile.conditions : [],
-    history: Array.isArray(data.profile?.history) ? data.profile.history : [],
-    targets: Array.isArray(data.profile?.targets) ? data.profile.targets : [],
-  };
-  const todaysSchedule = Array.isArray(data.todaysSchedule) ? data.todaysSchedule : [];
-
-  const getCareIcon = (kind: CareActivity['kind']) => {
-    switch (kind) {
-      case 'food': return <Truck size={16} />;
-      case 'doctor': return <Stethoscope size={16} />;
-      case 'lab': return <TestTubes size={16} />;
-      default: return <ShoppingBag size={16} />;
-    }
-  };
-
-  const getCareLabel = (activity: CareActivity) => {
-    if (activity.kind === 'food') {
-      return activity.eta ? `Delivery in ${activity.eta}` : 'Food delivery';
-    }
-    if (activity.kind === 'doctor' || activity.kind === 'lab') {
-      return activity.scheduledFor || 'Next available slot';
-    }
-    return 'Shop order';
-  };
-
-  const deleteCareActivity = async (activityId: string) => {
-    const previous = careActivity;
-    setDeletingCareId(activityId);
-    setCareActivity((current) => current.filter((activity) => activity.id !== activityId));
-    try {
-      await api.deleteCareActivity(activityId);
-    } catch {
-      setCareActivity(previous);
-    } finally {
-      setDeletingCareId(null);
-    }
-  };
-
-  const getIconForType = (type: string) => {
+  const getScheduleIcon = (type: string) => {
     switch (type) {
-      case 'Mind': return <Brain size={16} />;
-      case 'Body': return <Dumbbell size={16} />;
-      case 'Diet': return <Utensils size={16} />;
-      case 'Medicine': return <Pill size={16} />;
-      default: return <Clock size={16} />;
+      case 'doctor':
+        return (
+          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+            <Stethoscope size={18} className="text-amber-600" />
+          </div>
+        );
+      case 'medicine':
+        return (
+          <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+            <Pill size={18} className="text-green-600" />
+          </div>
+        );
+      case 'activity':
+        return (
+          <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+            <Activity size={18} className="text-green-600" />
+          </div>
+        );
+      default:
+        return (
+          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+            <Clock size={18} className="text-gray-600" />
+          </div>
+        );
     }
   };
 
-  const getColorForType = (type: string) => {
-    switch (type) {
-      case 'Mind': return 'text-purple-400 bg-purple-900/30 border-purple-800/50';
-      case 'Body': return 'text-blue-400 bg-blue-900/30 border-blue-800/50';
-      case 'Diet': return 'text-orange-400 bg-orange-900/30 border-orange-800/50';
-      case 'Medicine': return 'text-emerald-400 bg-emerald-900/30 border-emerald-800/50';
-      default: return 'text-stone-400 bg-stone-900/30 border-stone-800/50';
+  const getStatusIcon = (status: string) => {
+    if (status === 'completed') {
+      return <CheckCircle2 size={20} className="text-accent-green shrink-0" />;
     }
+    return <Circle size={20} className="text-text-muted shrink-0" />;
   };
 
   return (
-    <div className="space-y-6 pb-20 md:pb-6 max-w-5xl mx-auto">
-      <header className="flex flex-col gap-1">
-        <h2 className="text-4xl font-serif text-stone-100 italic">Namaste, {profile.name}</h2>
-        <p className="text-stone-500 text-sm">Your Biological Blueprint & Optimization Path</p>
-      </header>
+    <div className="min-h-screen bg-bg-primary pb-24">
+      {/* Header with yellow background */}
+      <div className="bg-header-yellow rounded-b-[32px] px-5 pt-12 pb-6">
+        {/* Top bar */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="text-text-primary font-semibold text-sm">Home</div>
+          <button
+            onClick={() => navigate('/profile')}
+            className="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center hover:bg-white/70 transition"
+          >
+            <User size={20} className="text-text-primary" />
+          </button>
+        </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* User Identity Section */}
-        <Card className="lg:col-span-4 p-6 bg-ayu-bg/50 border-ayu-border flex flex-col items-center text-center">
-          <div className="w-24 h-24 rounded-full bg-ayu-green/10 flex items-center justify-center mb-4 border border-ayu-green/20 relative">
-            <User size={48} className="text-ayu-green" />
-            <div className="absolute -bottom-1 -right-1 bg-ayu-saffron p-1.5 rounded-lg text-ayu-bg">
-              <Fingerprint size={16} />
-            </div>
-          </div>
-          <h3 className="text-2xl font-serif text-stone-100">{profile.name}, {profile.age}</h3>
-          <p className="text-xs text-stone-500 uppercase font-bold tracking-widest mt-1">Patient Identifier: #AC-8842</p>
-          
-          <div className="w-full mt-8">
-            <div className="flex flex-col gap-1 p-3 rounded-xl bg-ayu-card border border-ayu-border">
-              <span className="text-[9px] uppercase font-bold text-stone-600">Blood Type</span>
-              <span className="text-sm font-bold text-stone-300">{profile.bloodType}</span>
-            </div>
-          </div>
-        </Card>
+        {/* Greeting */}
+        <div>
+          <h1 className="text-3xl font-bold text-text-primary leading-tight">
+            Good Morning,
+          </h1>
+          <h1 className="text-3xl font-bold text-text-primary leading-tight">
+            {profile.name}!
+          </h1>
+          <p className="text-text-secondary text-sm mt-2">
+            Here&apos;s your health overview
+          </p>
+        </div>
+      </div>
 
-        {/* Current Condition & Risks */}
-        <div className="lg:col-span-8 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Allergies & Sensitivities */}
-            <Card className="border-red-500/20 bg-red-500/5">
-              <div className="flex items-center gap-3 mb-4">
-                <ShieldAlert size={20} className="text-red-500" />
-                <h4 className="font-serif text-lg text-stone-200">Allergies</h4>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {profile.allergies.map((allergy, i) => (
-                  <span key={i} className="px-3 py-1 bg-red-500/10 text-red-400 text-[10px] uppercase font-bold rounded-full border border-red-500/20">
-                    {allergy}
-                  </span>
-                ))}
-              </div>
-            </Card>
-
-            {/* Active Conditions */}
-            <Card className="border-ayu-saffron/20 bg-ayu-saffron/5">
-              <div className="flex items-center gap-3 mb-4">
-                <Stethoscope size={20} className="text-ayu-saffron" />
-                <h4 className="font-serif text-lg text-stone-200">Monitoring</h4>
-              </div>
-              <ul className="space-y-2">
-                {profile.conditions.map((condition, i) => (
-                  <li key={i} className="text-xs text-stone-400 flex items-center gap-2">
-                    <div className="w-1 h-1 rounded-full bg-ayu-saffron" />
-                    {condition}
-                  </li>
-                ))}
-              </ul>
-            </Card>
+      {/* Main content */}
+      <div className="px-5 py-6 space-y-6">
+        {/* Today's Schedule */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-text-primary">
+              Today&apos;s Schedule
+            </h2>
+            <button
+              onClick={() => navigate('/schedule')}
+              className="text-text-secondary text-sm font-medium hover:text-text-primary transition"
+            >
+              View all
+            </button>
           </div>
 
-          {/* Medical History Timeline */}
-          <Card className="p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <History size={20} className="text-ayu-green" />
-              <h4 className="font-serif text-lg text-stone-200">Clinical History</h4>
-            </div>
-            <div className="space-y-4">
-              {profile.history.map((item, i) => (
-                <div key={i} className="flex gap-4 group">
-                  <div className="flex flex-col items-center">
-                    <div className="w-2 h-2 rounded-full bg-ayu-border border border-ayu-green/40 group-hover:bg-ayu-green transition-colors" />
-                    {i !== profile.history.length - 1 && <div className="w-[1px] h-full bg-ayu-border" />}
+          {/* Closely packed schedule items as one component */}
+          <div className="bg-card-bg rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            {MOCK_SCHEDULE.map((item, index) => (
+              <div
+                key={item.id}
+                className={cn(
+                  "flex items-center gap-4 p-4",
+                  index !== MOCK_SCHEDULE.length - 1 && "border-b border-gray-100"
+                )}
+              >
+                {getScheduleIcon(item.type)}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs font-semibold text-text-muted">
+                      {item.time}
+                    </span>
+                    {getStatusIcon(item.status)}
                   </div>
-                  <div className="pb-4">
-                    <span className="text-[10px] font-bold text-ayu-green uppercase tracking-wider">{item.year}</span>
-                    <p className="text-sm text-stone-300 font-medium">{item.event}</p>
+                  <h3 className="font-semibold text-text-primary text-sm truncate">
+                    {item.title}
+                  </h3>
+                  <p className="text-xs text-text-secondary">{item.subtitle}</p>
+                  {item.type === 'activity' && (
+                    <p className="text-xs text-accent-green font-medium mt-1">
+                      30 min • Outdoor
+                    </p>
+                  )}
+                </div>
+                <ChevronRight size={20} className="text-text-muted shrink-0" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Health Summary */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-text-primary">
+              Health Summary
+            </h2>
+            <button className="text-text-secondary text-sm font-medium hover:text-text-primary transition">
+              View all
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {/* Sleep Card */}
+            <div className="bg-card-purple rounded-2xl p-4 shadow-sm border border-indigo-100">
+              <div className="w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center mb-3">
+                <Moon size={18} className="text-white" />
+              </div>
+              <p className="text-xs text-text-secondary mb-1">Sleep</p>
+              <p className="text-lg font-bold text-text-primary">7h 30m</p>
+              <p className="text-xs text-indigo-600 font-medium mt-1">Good</p>
+            </div>
+
+            {/* Steps Card */}
+            <div className="bg-card-green rounded-2xl p-4 shadow-sm border border-green-100">
+              <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center mb-3">
+                <Footprints size={18} className="text-white" />
+              </div>
+              <p className="text-xs text-text-secondary mb-1">Steps</p>
+              <p className="text-lg font-bold text-text-primary">6,432</p>
+              <p className="text-xs text-green-600 font-medium mt-1">
+                Goal: 10,000
+              </p>
+            </div>
+
+            {/* Mood Card */}
+            <div className="bg-card-teal rounded-2xl p-4 shadow-sm border border-teal-100">
+              <div className="w-10 h-10 rounded-full bg-teal-500 flex items-center justify-center mb-3">
+                <Smile size={18} className="text-white" />
+              </div>
+              <p className="text-xs text-text-secondary mb-1">Mood</p>
+              <p className="text-lg font-bold text-text-primary">Good</p>
+              <p className="text-xs text-teal-600 font-medium mt-1">😊</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        {careActivity.length > 0 && (
+          <div>
+            <h2 className="text-lg font-bold text-text-primary mb-4">
+              Upcoming Care
+            </h2>
+            <div className="space-y-3">
+              {careActivity.slice(0, 3).map((activity) => (
+                <div
+                  key={activity.id}
+                  className="bg-card-bg rounded-2xl p-4 shadow-sm border border-gray-100"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-accent-orange uppercase tracking-wider">
+                        {activity.kind}
+                      </p>
+                      <h3 className="font-semibold text-text-primary mt-1">
+                        {activity.title}
+                      </h3>
+                      <p className="text-xs text-text-secondary mt-0.5">
+                        {activity.provider}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span
+                        className={cn(
+                          'text-xs font-bold px-2 py-1 rounded-full',
+                          activity.status === 'confirmed'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-amber-100 text-amber-700'
+                        )}
+                      >
+                        {activity.status}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-          </Card>
-        </div>
-      </div>
-
-      {careActivity.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 px-2">
-            <ShoppingBag size={22} className="text-ayu-saffron" />
-            <h3 className="text-xl font-serif text-stone-100">Upcoming Care</h3>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {careActivity.slice(0, 6).map((activity) => (
-              <Card key={activity.id} className="flex flex-col gap-3 border-ayu-saffron/20 bg-ayu-saffron/5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-wider text-ayu-saffron">
-                    {getCareIcon(activity.kind)}
-                    <span>{activity.kind}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-lg border border-ayu-border bg-ayu-card px-2 py-1 text-[10px] font-bold uppercase text-stone-500">
-                      {activity.status}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => deleteCareActivity(activity.id)}
-                      disabled={deletingCareId === activity.id}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 transition hover:bg-red-500 hover:text-white disabled:cursor-wait disabled:opacity-60"
-                      aria-label={`Delete ${activity.title}`}
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-stone-200">{activity.title}</h4>
-                  <p className="mt-1 text-[11px] text-stone-500">
-                    {activity.provider ? `${activity.provider} · ` : ''}{getCareLabel(activity)}
-                  </p>
-                </div>
-                <div className="text-xs font-bold text-stone-300">₹{activity.price}</div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Today's Schedule Timeline Section */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-3 px-2">
-          <Clock size={22} className="text-ayu-green" />
-          <h3 className="text-xl font-serif text-stone-100">Today's Schedule</h3>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {todaysSchedule.map((item) => (
-            <Card key={item.id} className={cn(
-              "flex flex-col gap-3 group transition-all",
-              item.status === 'completed' 
-                ? "bg-ayu-green/5 border-ayu-green/20" 
-                : "hover:border-ayu-green/30"
-            )}>
-              <div className="flex justify-between items-center mb-1">
-                <div className={cn("px-2 py-1 rounded text-[10px] uppercase font-bold flex items-center gap-1.5 border", getColorForType(item.type))}>
-                  {getIconForType(item.type)}
-                  <span>{item.type}</span>
-                </div>
-                <div className="flex items-center gap-1.5 opacity-60">
-                  <Clock size={12} />
-                  <span className="text-[10px] font-bold tracking-wider">{item.time}</span>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                {item.status === 'completed' ? (
-                  <CheckCircle2 size={20} className="text-ayu-green shrink-0 mt-0.5" />
-                ) : (
-                  <Circle size={20} className="text-stone-700 shrink-0 mt-0.5" />
-                )}
-                <div>
-                  <h4 className={cn(
-                    "text-sm font-bold",
-                    item.status === 'completed' ? "text-stone-400 line-through decoration-ayu-green/30" : "text-stone-200"
-                  )}>{item.title}</h4>
-                  <p className="text-[11px] text-stone-500 mt-1">{item.duration}</p>
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
+        )}
       </div>
-
-      {/* Strategic Optimization Targets */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-3 px-2 mt-4">
-          <Target size={22} className="text-ayu-green" />
-          <h3 className="text-xl font-serif text-stone-100">3-Month Optimization Aim</h3>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {profile.targets.map((target, i) => (
-            <Card key={i} className="flex flex-col gap-4 group hover:border-ayu-green/30 transition-all">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h5 className="text-stone-300 font-bold text-sm tracking-tight">{target.goal}</h5>
-                  <p className="text-[10px] text-stone-500 uppercase font-bold tracking-widest mt-0.5">Priority: {target.effort}</p>
-                </div>
-                <div className="bg-ayu-green/10 p-2 rounded-lg text-ayu-green">
-                  <Dna size={18} />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
-                  <div className="flex justify-between text-[10px] font-bold text-stone-600 mb-2 uppercase">
-                    <span>Base ({target.current})</span>
-                    <span>Aim ({target.aim})</span>
-                  </div>
-                  <div className="h-2 w-full bg-ayu-bg rounded-full overflow-hidden border border-ayu-border relative">
-                    <div className="absolute inset-y-0 left-0 bg-ayu-green opacity-40" style={{ width: '65%' }} />
-                    <div className="absolute right-[10%] top-0 bottom-0 w-[2px] bg-ayu-green shadow-[0_0_8px_rgba(61,107,53,0.8)]" />
-                  </div>
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
-      </div>
-
-
     </div>
   );
 }
+

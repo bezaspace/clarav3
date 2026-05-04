@@ -14,7 +14,7 @@ export function Card({ children, className, delay = 0, ...props }: CardProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay }}
       className={cn(
-        "bg-ayu-card rounded-2xl p-4 shadow-sm border border-ayu-border",
+        "bg-card-bg rounded-2xl p-4 shadow-sm border border-gray-100",
         className
       )}
       {...props}

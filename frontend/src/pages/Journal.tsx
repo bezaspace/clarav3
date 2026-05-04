@@ -1,16 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   BookOpen,
   Brain,
   Calendar,
   CheckCircle2,
   Circle,
-  HeartPulse,
+  ChevronLeft,
+  Bell,
   ListChecks,
-  Moon,
+  Sparkles,
   Tag,
   Target,
   X,
+  TrendingUp,
+  Heart,
+  Clock,
+  ArrowRight,
+  Moon,
 } from 'lucide-react';
 
 import { Card } from '@/src/components/ui/Card';
@@ -27,11 +34,11 @@ const fallbackData: JournalData = {
 type JournalView = 'today' | 'reflections' | 'cbt' | 'tasks';
 type LoadGroup = 'heavy' | 'today' | 'done';
 
-const views: { id: JournalView; label: string; icon: typeof HeartPulse }[] = [
-  { id: 'today', label: 'Today', icon: HeartPulse },
-  { id: 'reflections', label: 'Reflections', icon: BookOpen },
-  { id: 'cbt', label: 'CBT', icon: Brain },
-  { id: 'tasks', label: 'Tasks', icon: ListChecks },
+const views: { id: JournalView; label: string; icon: typeof Sparkles; color: string }[] = [
+  { id: 'today', label: 'Today', icon: Sparkles, color: 'bg-purple-100 text-purple-600' },
+  { id: 'reflections', label: 'Reflections', icon: BookOpen, color: 'bg-blue-100 text-blue-600' },
+  { id: 'cbt', label: 'CBT', icon: Brain, color: 'bg-orange-100 text-orange-600' },
+  { id: 'tasks', label: 'Tasks', icon: ListChecks, color: 'bg-green-100 text-green-600' },
 ];
 
 function getWeight(task: Task) {
@@ -48,11 +55,11 @@ function getWeight(task: Task) {
 function getWeightClass(task: Task) {
   switch (task.priority) {
     case 'high':
-      return 'border-red-400/20 bg-red-400/10 text-red-200';
+      return 'bg-red-100 text-red-600';
     case 'medium':
-      return 'border-ayu-saffron/25 bg-ayu-saffron/10 text-ayu-saffron';
+      return 'bg-amber-100 text-amber-600';
     default:
-      return 'border-ayu-green/25 bg-ayu-green/10 text-ayu-green';
+      return 'bg-green-100 text-green-600';
   }
 }
 
@@ -70,13 +77,16 @@ function getTaskGroup(task: Task): LoadGroup {
 
 function getMoodTone(mood: string) {
   const normalized = mood.toLowerCase();
-  if (normalized.includes('happy') || normalized.includes('productive')) {
-    return 'border-ayu-green/25 bg-ayu-green/10 text-ayu-green';
+  if (normalized.includes('happy') || normalized.includes('productive') || normalized.includes('good')) {
+    return 'bg-green-100 text-green-600';
   }
-  if (normalized.includes('neutral')) {
-    return 'border-ayu-saffron/25 bg-ayu-saffron/10 text-ayu-saffron';
+  if (normalized.includes('neutral') || normalized.includes('okay')) {
+    return 'bg-amber-100 text-amber-600';
   }
-  return 'border-stone-500/30 bg-stone-800 text-stone-300';
+  if (normalized.includes('sad') || normalized.includes('anxious') || normalized.includes('stressed')) {
+    return 'bg-red-100 text-red-600';
+  }
+  return 'bg-blue-100 text-blue-600';
 }
 
 function getEntryThemes(entries: JournalEntry[]) {
@@ -86,7 +96,7 @@ function getEntryThemes(entries: JournalEntry[]) {
 
 function EmptyState({ label }: { label: string }) {
   return (
-    <div className="flex min-h-[150px] items-center justify-center rounded-xl border border-dashed border-stone-800 bg-stone-950/30 p-8 text-center text-sm font-semibold text-stone-600">
+    <div className="flex min-h-[150px] items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 p-8 text-center text-sm font-medium text-text-secondary">
       {label}
     </div>
   );
@@ -96,18 +106,18 @@ function TaskRow({ task }: { task: Task; key?: string }) {
   const isDone = task.status === 'completed';
 
   return (
-    <div className="rounded-xl border border-ayu-border bg-ayu-bg/45 p-4">
+    <div className="rounded-2xl border border-gray-100 bg-card-bg p-4 shadow-sm">
       <div className="flex items-start gap-3">
         {isDone ? (
-          <CheckCircle2 className="mt-0.5 shrink-0 text-ayu-green" size={18} />
+          <CheckCircle2 className="mt-0.5 shrink-0 text-accent-green" size={20} />
         ) : (
-          <Circle className="mt-0.5 shrink-0 text-stone-600" size={18} />
+          <Circle className="mt-0.5 shrink-0 text-text-muted" size={20} />
         )}
         <div className="min-w-0 flex-1">
           <h4
             className={cn(
-              'text-sm font-bold leading-snug',
-              isDone ? 'text-stone-500 line-through decoration-ayu-green/30' : 'text-stone-200'
+              'text-sm font-semibold leading-snug',
+              isDone ? 'text-text-muted line-through' : 'text-text-primary'
             )}
           >
             {task.title}
@@ -115,18 +125,18 @@ function TaskRow({ task }: { task: Task; key?: string }) {
           <div className="mt-3 flex flex-wrap gap-2">
             <span
               className={cn(
-                'rounded-lg border px-2 py-1 text-[10px] font-bold uppercase tracking-wider',
+                'rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider',
                 getWeightClass(task)
               )}
             >
               {getWeight(task)}
             </span>
-            <span className="inline-flex items-center gap-1 rounded-lg border border-ayu-border bg-stone-950/60 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-500">
-              <Tag size={11} />
+            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-medium text-text-secondary">
+              <Tag size={10} />
               {task.category}
             </span>
-            <span className="inline-flex items-center gap-1 rounded-lg border border-ayu-border bg-stone-950/60 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-500">
-              <Calendar size={11} />
+            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-medium text-text-secondary">
+              <Calendar size={10} />
               {task.dueDate}
             </span>
           </div>
@@ -145,15 +155,15 @@ function ReflectionCard({
   key?: string;
 }) {
   return (
-    <Card className={cn('border-ayu-border bg-ayu-card/90', compact ? 'p-4' : 'p-5')}>
+    <Card className={cn('border-gray-100 bg-card-bg shadow-sm', compact ? 'p-4' : 'p-5')}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500">{entry.date}</p>
-          <h3 className="mt-1 text-lg font-serif leading-tight text-stone-100">{entry.title}</h3>
+          <p className="text-[10px] font-medium uppercase tracking-wider text-text-secondary">{entry.date}</p>
+          <h3 className="mt-1 text-base font-semibold leading-tight text-text-primary">{entry.title}</h3>
         </div>
         <span
           className={cn(
-            'rounded-lg border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider',
+            'rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider',
             getMoodTone(entry.mood)
           )}
         >
@@ -161,18 +171,18 @@ function ReflectionCard({
         </span>
       </div>
 
-      <p className={cn('text-sm leading-6 text-stone-400', compact ? 'mt-3 line-clamp-2' : 'mt-4')}>
+      <p className={cn('text-sm leading-6 text-text-secondary', compact ? 'mt-3 line-clamp-2' : 'mt-4')}>
         {entry.excerpt}
       </p>
 
-      <div className="mt-5 flex flex-wrap gap-2 border-t border-ayu-border/60 pt-4">
-        <span className="rounded-lg border border-ayu-green/20 bg-ayu-green/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-ayu-green">
-          {entry.source === 'assistant' ? 'AI-saved reflection' : 'Saved reflection'}
+      <div className="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-4">
+        <span className="rounded-full bg-purple-100 px-2.5 py-1 text-[10px] font-medium text-purple-600">
+          {entry.source === 'assistant' ? 'AI-saved' : 'Manual'}
         </span>
         {entry.tags.map((tag) => (
           <span
             key={tag}
-            className="rounded-lg border border-ayu-border bg-ayu-bg px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-500"
+            className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-medium text-text-secondary"
           >
             {tag}
           </span>
@@ -183,6 +193,7 @@ function ReflectionCard({
 }
 
 export default function Journal() {
+  const navigate = useNavigate();
   const [journalData, setJournalData] = useState<JournalData>(fallbackData);
   const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState<JournalView>('today');
@@ -226,297 +237,350 @@ export default function Journal() {
   );
 
   if (loading) {
-    return <div className="text-sm text-stone-500">Loading...</div>;
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <div className="text-text-secondary">Loading...</div>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6 pb-20 md:pb-6">
-      <header>
-        <div className="flex w-full gap-1 overflow-x-auto rounded-xl border border-ayu-border bg-stone-900 p-1 md:w-fit">
-          {views.map(({ id, label, icon: Icon }) => (
+    <div className="min-h-screen bg-bg-primary pb-24">
+      {/* Header with yellow background */}
+      <div className="bg-header-yellow rounded-b-[32px] px-5 pt-12 pb-6">
+        {/* Top bar */}
+        <div className="flex items-center justify-between mb-6">
+          <button
+            onClick={() => navigate(-1)}
+            className="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center hover:bg-white/70 transition"
+          >
+            <ChevronLeft size={20} className="text-text-primary" />
+          </button>
+          <h1 className="text-text-primary font-semibold text-lg">Journal</h1>
+          <button className="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center hover:bg-white/70 transition relative">
+            <Bell size={20} className="text-text-primary" />
+            <div className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full" />
+          </button>
+        </div>
+
+        {/* View tabs */}
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+          {views.map(({ id, label, icon: Icon, color }) => (
             <button
               key={id}
               type="button"
               onClick={() => setActiveView(id)}
               className={cn(
-                'inline-flex min-w-fit items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition-all',
+                'inline-flex min-w-fit items-center justify-center gap-2 rounded-full px-4 py-2.5 text-xs font-semibold transition-all',
                 activeView === id
-                  ? 'bg-stone-800 text-stone-100 shadow-sm'
-                  : 'text-stone-500 hover:text-stone-300'
+                  ? 'bg-text-primary text-white shadow-md'
+                  : 'bg-white/60 text-text-secondary hover:bg-white/80'
               )}
             >
-              <Icon size={14} />
+              <div className={cn('w-5 h-5 rounded-full flex items-center justify-center', color)}>
+                <Icon size={12} />
+              </div>
               {label}
             </button>
           ))}
         </div>
-      </header>
+      </div>
 
-      {activeView === 'today' && (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-          <Card className="border-ayu-green/20 bg-ayu-green/5 p-5 lg:col-span-7">
-            <div className="flex flex-col gap-5">
+      {/* Main content */}
+      <div className="px-5 py-6 space-y-6">
+
+        {activeView === 'today' && (
+          <div className="space-y-5">
+            {/* Today's Mood Card */}
+            <Card className="bg-card-purple border-indigo-100 p-5">
               <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-ayu-green">
-                    Today
-                  </p>
-                  <h3 className="mt-2 text-2xl font-serif text-stone-100">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center">
+                      <Heart size={16} className="text-white" />
+                    </div>
+                    <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider">
+                      Today's Mood
+                    </p>
+                  </div>
+                  <h3 className="text-xl font-bold text-text-primary">
                     {latestEntry ? latestEntry.mood : 'No check-in yet'}
                   </h3>
-                  <p className="mt-2 max-w-xl text-sm leading-6 text-stone-400">
+                  <p className="mt-2 text-sm leading-6 text-text-secondary">
                     {latestEntry
                       ? latestEntry.excerpt
                       : 'When the assistant saves a reflection, the latest one will appear here.'}
                   </p>
                 </div>
-                <div className="rounded-xl border border-ayu-border bg-ayu-bg/80 p-3 text-ayu-green">
-                  <Moon size={22} />
+                <div className="w-12 h-12 rounded-2xl bg-indigo-100 flex items-center justify-center">
+                  <Moon size={24} className="text-indigo-600" />
                 </div>
               </div>
+            </Card>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-ayu-border bg-ayu-bg/60 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-stone-600">Mental load</p>
-                  <p className="mt-2 text-xl font-bold text-stone-100">
-                    {heavyTasks.length ? 'High' : openTasks.length ? 'Manageable' : 'Light'}
-                  </p>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-900">
-                    <div
-                      className="h-full rounded-full bg-ayu-saffron"
-                      style={{ width: `${Math.min(100, 28 + openTasks.length * 12)}%` }}
-                    />
-                  </div>
+            {/* Stats Grid */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-card-teal rounded-2xl p-4 shadow-sm border border-teal-100">
+                <div className="w-8 h-8 rounded-full bg-teal-500 flex items-center justify-center mb-3">
+                  <TrendingUp size={16} className="text-white" />
                 </div>
-                <div className="rounded-xl border border-ayu-border bg-ayu-bg/60 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-stone-600">Pattern</p>
-                  <p className="mt-2 text-xl font-bold text-stone-100">
-                    {themes[0] || 'Reflection'}
-                  </p>
-                  <p className="mt-2 text-xs leading-5 text-stone-500">Most recent recurring theme.</p>
-                </div>
-                <div className="rounded-xl border border-ayu-border bg-ayu-bg/60 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-stone-600">Next step</p>
-                  <p className="mt-2 text-xl font-bold text-stone-100">Clear one thing</p>
-                  <p className="mt-2 text-xs leading-5 text-stone-500">Choose the smallest open action.</p>
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-5 lg:col-span-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-ayu-saffron">
-                  Suggested next step
+                <p className="text-xs text-text-secondary mb-1">Mental Load</p>
+                <p className="text-lg font-bold text-text-primary">
+                  {heavyTasks.length ? 'High' : openTasks.length ? 'Medium' : 'Low'}
                 </p>
-                <h3 className="mt-2 text-xl font-serif text-stone-100">Make today feel lighter</h3>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-teal-200">
+                  <div
+                    className="h-full rounded-full bg-teal-500"
+                    style={{ width: `${Math.min(100, 28 + openTasks.length * 12)}%` }}
+                  />
+                </div>
               </div>
-              <Target className="text-ayu-saffron" size={22} />
-            </div>
-            <div className="mt-5 space-y-3">
-              {(openTasks.length ? openTasks.slice(0, 3) : journalData.tasks.slice(0, 3)).map((task) => (
-                <TaskRow key={task.id} task={task} />
-              ))}
-              {journalData.tasks.length === 0 && (
-                <EmptyState label="No mental-load tasks have been saved yet." />
-              )}
-            </div>
-          </Card>
 
-        </div>
-      )}
-
-      {activeView === 'reflections' && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 px-1">
-            <BookOpen className="text-ayu-green" size={21} />
-            <h3 className="text-xl font-serif text-stone-100">Saved reflections</h3>
-          </div>
-          {journalData.entries.length ? (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {journalData.entries.map((entry) => (
-                <ReflectionCard key={entry.id} entry={entry} />
-              ))}
-            </div>
-          ) : (
-            <EmptyState label="No approved journal entries are available yet." />
-          )}
-        </div>
-      )}
-
-      {activeView === 'cbt' && (
-        <Card className="overflow-hidden p-0">
-          <div className="flex items-center justify-between border-b border-ayu-border px-3 py-2">
-            <div className="flex items-center gap-2">
-              <Brain className="text-ayu-saffron" size={16} />
-              <h3 className="text-sm font-bold text-stone-200">CBT notes</h3>
-            </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-600">
-              {journalData.cbtNotes.length} rows
-            </span>
-          </div>
-
-          {journalData.cbtNotes.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] border-collapse text-left text-xs">
-                <thead className="bg-stone-950/70 text-[10px] uppercase tracking-wider text-stone-500">
-                  <tr>
-                    <th className="border-b border-r border-ayu-border px-3 py-2 font-bold">Time</th>
-                    <th className="border-b border-r border-ayu-border px-3 py-2 font-bold">Situation</th>
-                    <th className="border-b border-r border-ayu-border px-3 py-2 font-bold">Thought</th>
-                    <th className="border-b border-r border-ayu-border px-3 py-2 font-bold">Feeling</th>
-                    <th className="border-b border-r border-ayu-border px-3 py-2 font-bold">Kinder reframe</th>
-                    <th className="border-b border-ayu-border px-3 py-2 font-bold">Small action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {journalData.cbtNotes.map((note) => (
-                    <tr
-                      key={note.id}
-                      tabIndex={0}
-                      role="button"
-                      onClick={() => setSelectedCbtNote(note)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setSelectedCbtNote(note);
-                        }
-                      }}
-                      className="cursor-pointer border-b border-ayu-border/70 text-stone-300 transition hover:bg-ayu-green/5 focus:bg-ayu-green/5 focus:outline-none"
-                    >
-                      <td className="whitespace-nowrap border-r border-ayu-border/70 px-3 py-2 text-stone-500">
-                        {note.time}
-                      </td>
-                      <td className="max-w-[220px] border-r border-ayu-border/70 px-3 py-2 font-semibold text-stone-200">
-                        {note.situation}
-                      </td>
-                      <td className="max-w-[190px] border-r border-ayu-border/70 px-3 py-2 text-stone-400">
-                        <span className="line-clamp-1">{note.thought}</span>
-                      </td>
-                      <td className="max-w-[140px] border-r border-ayu-border/70 px-3 py-2 text-stone-400">
-                        {note.feeling}
-                      </td>
-                      <td className="max-w-[240px] border-r border-ayu-border/70 px-3 py-2 text-stone-400">
-                        <span className="line-clamp-1">{note.reframe}</span>
-                      </td>
-                      <td className="max-w-[230px] px-3 py-2 text-stone-400">
-                        <span className="line-clamp-1">{note.action}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="p-4">
-              <EmptyState label="No CBT notes have been saved yet." />
-            </div>
-          )}
-        </Card>
-      )}
-
-      {selectedCbtNote && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-3"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="cbt-note-title"
-          onClick={() => setSelectedCbtNote(null)}
-        >
-          <div
-            className="w-full max-w-2xl overflow-hidden rounded-xl border border-ayu-border bg-ayu-card shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-ayu-border px-4 py-3">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-ayu-saffron">CBT note</p>
-                <h3 id="cbt-note-title" className="mt-1 text-lg font-serif text-stone-100">
-                  {selectedCbtNote.situation}
-                </h3>
-                <p className="mt-1 text-xs font-semibold text-stone-500">{selectedCbtNote.time}</p>
+              <div className="bg-card-green rounded-2xl p-4 shadow-sm border border-green-100">
+                <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center mb-3">
+                  <Tag size={16} className="text-white" />
+                </div>
+                <p className="text-xs text-text-secondary mb-1">Pattern</p>
+                <p className="text-lg font-bold text-text-primary truncate">
+                  {themes[0] || 'Reflection'}
+                </p>
+                <p className="mt-1 text-[10px] text-green-600">Most recent theme</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedCbtNote(null)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-ayu-border text-stone-500 transition hover:text-stone-100"
-                aria-label="Close CBT note"
-              >
-                <X size={16} />
-              </button>
+
+              <div className="bg-card-bg rounded-2xl p-4 shadow-sm border border-gray-100">
+                <div className="w-8 h-8 rounded-full bg-header-yellow flex items-center justify-center mb-3">
+                  <Target size={16} className="text-text-primary" />
+                </div>
+                <p className="text-xs text-text-secondary mb-1">Next Step</p>
+                <p className="text-lg font-bold text-text-primary">Clear one</p>
+                <p className="mt-1 text-[10px] text-text-secondary">Smallest action</p>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 divide-y divide-ayu-border md:grid-cols-2 md:divide-x md:divide-y-0">
-              <div className="space-y-3 p-4">
+            {/* Suggested Tasks */}
+            <Card className="p-5 border-gray-100">
+              <div className="flex items-start justify-between gap-3 mb-4">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-stone-600">Thought</p>
-                  <p className="mt-1 text-sm leading-6 text-stone-300">{selectedCbtNote.thought}</p>
+                  <p className="text-xs font-semibold text-accent-orange uppercase tracking-wider">
+                    Suggested Next Step
+                  </p>
+                  <h3 className="mt-1 text-lg font-bold text-text-primary">Make today feel lighter</h3>
                 </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-stone-600">Feeling</p>
-                  <p className="mt-1 text-sm leading-6 text-stone-300">{selectedCbtNote.feeling}</p>
+                <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center">
+                  <Target size={20} className="text-orange-600" />
                 </div>
-              </div>
-              <div className="space-y-3 p-4">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-ayu-green">Kinder reframe</p>
-                  <p className="mt-1 text-sm leading-6 text-stone-300">{selectedCbtNote.reframe}</p>
-                </div>
-                <div className="rounded-lg border border-ayu-border bg-ayu-bg/70 p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-stone-600">Small action</p>
-                  <p className="mt-1 text-sm font-semibold leading-6 text-stone-200">{selectedCbtNote.action}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeView === 'tasks' && (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-          {[
-            {
-              id: 'heavy' as LoadGroup,
-              title: 'Heavy on my mind',
-              icon: Brain,
-              tone: 'text-red-300',
-              empty: 'Nothing heavy is waiting right now.',
-            },
-            {
-              id: 'today' as LoadGroup,
-              title: 'Can handle today',
-              icon: Target,
-              tone: 'text-ayu-saffron',
-              empty: 'No manageable next actions yet.',
-            },
-            {
-              id: 'done' as LoadGroup,
-              title: 'Done',
-              icon: CheckCircle2,
-              tone: 'text-ayu-green',
-              empty: 'Completed mental-load tasks will appear here.',
-            },
-          ].map(({ id, title, icon: Icon, tone, empty }) => (
-            <div key={id} className="rounded-2xl border border-ayu-border/70 bg-stone-900/25 p-4">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Icon className={tone} size={18} />
-                  <h3 className="text-base font-bold text-stone-200">{title}</h3>
-                </div>
-                <span className="rounded-full border border-ayu-border bg-ayu-bg px-2.5 py-1 text-xs font-bold text-stone-500">
-                  {taskGroups[id].length}
-                </span>
               </div>
               <div className="space-y-3">
-                {taskGroups[id].map((task) => (
+                {(openTasks.length ? openTasks.slice(0, 3) : journalData.tasks.slice(0, 3)).map((task) => (
                   <TaskRow key={task.id} task={task} />
                 ))}
-                {taskGroups[id].length === 0 && <EmptyState label={empty} />}
+                {journalData.tasks.length === 0 && (
+                  <EmptyState label="No tasks have been saved yet." />
+                )}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {activeView === 'reflections' && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                <BookOpen size={20} className="text-blue-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-text-primary">Saved Reflections</h3>
+                <p className="text-xs text-text-secondary">Your journal entries and thoughts</p>
               </div>
             </div>
-          ))}
-        </div>
-      )}
+            {journalData.entries.length ? (
+              <div className="space-y-4">
+                {journalData.entries.map((entry) => (
+                  <ReflectionCard key={entry.id} entry={entry} />
+                ))}
+              </div>
+            ) : (
+              <EmptyState label="No journal entries yet. Start writing your thoughts!" />
+            )}
+          </div>
+        )}
+
+        {activeView === 'cbt' && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center">
+                <Brain size={20} className="text-orange-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-text-primary">CBT Notes</h3>
+                <p className="text-xs text-text-secondary">Cognitive behavioral therapy exercises</p>
+              </div>
+              <span className="ml-auto text-xs font-semibold text-text-secondary bg-gray-100 px-3 py-1 rounded-full">
+                {journalData.cbtNotes.length} notes
+              </span>
+            </div>
+
+            {journalData.cbtNotes.length ? (
+              <div className="space-y-3">
+                {journalData.cbtNotes.map((note) => (
+                  <button
+                    key={note.id}
+                    onClick={() => setSelectedCbtNote(note)}
+                    className="w-full bg-card-bg rounded-2xl p-4 shadow-sm border border-gray-100 text-left active:scale-[0.98] transition"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center shrink-0">
+                        <Clock size={18} className="text-orange-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="text-xs font-semibold text-text-muted">{note.time}</p>
+                          {note.linkedEntryId && (
+                            <span className="text-[10px] bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full">
+                              Linked
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="font-semibold text-text-primary text-sm mb-2">{note.situation}</h4>
+                        <p className="text-xs text-text-secondary line-clamp-2">{note.thought}</p>
+                        <div className="flex items-center gap-2 mt-3">
+                          <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-1 rounded-full">
+                            {note.feeling}
+                          </span>
+                          <ArrowRight size={12} className="text-text-muted" />
+                          <span className="text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full line-clamp-1">
+                            {note.action}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronLeft size={20} className="text-text-muted rotate-180 shrink-0" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <EmptyState label="No CBT notes yet. Your therapist can help you create these." />
+            )}
+          </div>
+        )}
+
+        {selectedCbtNote && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-3"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cbt-note-title"
+            onClick={() => setSelectedCbtNote(null)}
+          >
+            <div
+              className="w-full max-w-md overflow-hidden rounded-2xl border border-gray-200 bg-card-bg shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-gray-100 px-4 py-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-orange-600">CBT Note</p>
+                  <h3 id="cbt-note-title" className="mt-1 text-base font-semibold text-text-primary">
+                    {selectedCbtNote.situation}
+                  </h3>
+                  <p className="mt-1 text-xs text-text-secondary">{selectedCbtNote.time}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCbtNote(null)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-text-secondary transition hover:bg-gray-200"
+                  aria-label="Close CBT note"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="divide-y divide-gray-100">
+                <div className="p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary mb-2">Thought</p>
+                  <p className="text-sm leading-6 text-text-secondary">{selectedCbtNote.thought}</p>
+                </div>
+                <div className="p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary mb-2">Feeling</p>
+                  <p className="text-sm leading-6 text-text-secondary">{selectedCbtNote.feeling}</p>
+                </div>
+                <div className="p-4 bg-green-50/50">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-green-600 mb-2">Kinder Reframe</p>
+                  <p className="text-sm leading-6 text-text-secondary">{selectedCbtNote.reframe}</p>
+                </div>
+                <div className="p-4 bg-orange-50/50">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-orange-600 mb-2">Small Action</p>
+                  <p className="text-sm font-semibold leading-6 text-text-primary">{selectedCbtNote.action}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeView === 'tasks' && (
+          <div className="space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                <ListChecks size={20} className="text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-text-primary">Task Board</h3>
+                <p className="text-xs text-text-secondary">Organize and track your tasks</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {[
+                {
+                  id: 'heavy' as LoadGroup,
+                  title: 'Heavy on My Mind',
+                  icon: Brain,
+                  color: 'bg-red-100 text-red-600',
+                  bgColor: 'bg-red-50/50',
+                  borderColor: 'border-red-100',
+                  empty: 'Nothing heavy is waiting right now.',
+                },
+                {
+                  id: 'today' as LoadGroup,
+                  title: 'Can Handle Today',
+                  icon: Target,
+                  color: 'bg-amber-100 text-amber-600',
+                  bgColor: 'bg-amber-50/50',
+                  borderColor: 'border-amber-100',
+                  empty: 'No manageable tasks yet.',
+                },
+                {
+                  id: 'done' as LoadGroup,
+                  title: 'Done',
+                  icon: CheckCircle2,
+                  color: 'bg-green-100 text-green-600',
+                  bgColor: 'bg-green-50/50',
+                  borderColor: 'border-green-100',
+                  empty: 'Completed tasks will appear here.',
+                },
+              ].map(({ id, title, icon: Icon, color, bgColor, borderColor, empty }) => (
+                <div key={id} className={cn('rounded-2xl border p-4', bgColor, borderColor)}>
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className={cn('w-8 h-8 rounded-full flex items-center justify-center', color)}>
+                        <Icon size={16} />
+                      </div>
+                      <h3 className="text-base font-semibold text-text-primary">{title}</h3>
+                    </div>
+                    <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-text-secondary">
+                      {taskGroups[id].length}
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    {taskGroups[id].map((task) => (
+                      <TaskRow key={task.id} task={task} />
+                    ))}
+                    {taskGroups[id].length === 0 && <EmptyState label={empty} />}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
